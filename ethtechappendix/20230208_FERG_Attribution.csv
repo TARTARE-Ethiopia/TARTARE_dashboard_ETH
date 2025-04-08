@@ -1,0 +1,13 @@
+﻿Hazard,Beef,SR_meat,Dairy,Poultry_meat,Eggs,Vegetables,Fruits_Nuts,Grains_Beans,Oils_Sugar,(Shell)fish,Other,Total
+Aflatoxin,0,0,0,0,0,0,50,50,0,0,0,100
+Arsenic,0,0,0,0,0,0,0,90,0,10,0,100
+Campylobacter,12,12,15,51,0,8,2,0,0,0,0,100
+EPEC,13,9,24,21,0,19,7,3,3,1,0,100
+ETEC,13,9,24,21,0,19,7,3,3,1,0,100
+M_bovis,0,0,100,0,0,0,0,0,0,0,0,100
+Salmonella,8,8,7,35,23,7,6,2,1,2,2,101
+Norovirus,13,9,24,21,0,19,7,3,3,1,0,100
+Rotavirus,13,9,24,21,0,19,7,3,3,1,0,100
+S_Typhi,13,9,24,21,0,19,7,3,3,1,0,100
+Shigella,13,9,24,21,0,19,7,3,3,1,0,100
+V_cholerae,13,9,24,21,0,19,7,3,3,1,0,100

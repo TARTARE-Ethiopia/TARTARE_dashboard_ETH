@@ -1,0 +1,2026 @@
+---
+title: "Risk ranking technical appendix"
+date: last-modified
+format:
+  html:
+    code-fold: true
+    code-summary: "Show the code"
+toc: true
+toc-title: "Contents"
+toc-depth: 3
+number-sections: true
+mainfont: "Garamond"
+bibliography: references.bib
+csl: journal-of-food-protection.csl
+---
+
+```{r}
+#| include: FALSE
+#| label: housekeeping
+
+library(MASS)         # for ordinal logistic regression
+library(readxl)       # for reading excel files
+library(tidyverse)    # for data manipulation and plotting
+library(ggmosaic)     # for mosaic plots
+library(RColorBrewer) # for color-blind friendly palette
+library(gt)           # for creating tables
+library(Hmisc)        # for checking proportional odds assumption
+library(reshape2)     # for reshaping data
+library(effects)      # for plotting interaction effects
+library(GGally)       # for checking multicollinearity
+library(ggpubr)       # for combining plots
+library(brant)        # for checking proportional odds assumption
+library(purrrlyr)     # for grouping in data frames
+library(janitor)      # for cleaning data
+library(stringr)      # for string manipulation
+library(tibble)       # for creating data frames
+library(purrr)        # for mapping functions to lists
+library(mc2d)         # for generating random samples with mqi distribution
+library(ggtext)       # for annotating text in ggplot graphics
+library(knitr)        # for including graphics
+```
+
+# Introduction
+
+This document provides detailed information on the data analysis and visualization of results from the workshops with governmental decision makers and relevant stakeholders to identify, rank and prioritize food safety hazards in Ethiopia as described in the manuscript "A proposed framework for ranking and prioritizing food safety risks in low information settings using foodborne disease burden metrics: a case study in Ethiopia" by B. Kowalcyk *et al*.
+
+# Disease burden estimates
+
+The workshops have been informed by comprehensive estimates of the burden of foodborne disease in Ethiopia. With permission from the Ethiopian government, data on disease incidence, mortality and Disability-Adjusted Life Years (DALYs) for 31 hazards were extracted from the World Health Organization (WHO) Foodborne Disease Burden Epidemiology Reference group (FERG) @havelaar2015. The burden of hevay metals was based on estimates published by Gibb *et al.* [@gibb2019]. Monte Carlo sample data of both datasets were kindly provided by Dr. Brecht Devleesschauwer, Sciensano, Brussels, Belgium.
+
+Mean estimates and 95% uncertainty intervals were calculated for each of the selected risk metrics for hazards not considered by WHO FERG. When available, data were extracted from published literature. In the absence of published data, assumptions were made, reviewed with Ethiopian experts and, when appropriate, adjusted. A standardized method was used to estimate uncertainty for each input. Whenever possible, uncertainty estimates were computed from reported data. If no data were available to assess uncertainty, broad uncertainty was assumed. For age of onset, uncertainty bounds were assumed to be ± 20 years of the midpoint. In all other cases, the midpoint was, as appropriate, divided or multiplied by 10 to obtain lower and upper uncertainty bounds. If data were available, uncertainty in proportions (e.g., case-fatality ratio) was modeled as a Beta distribution while uncertainty in rates was modeled with a Gamma distribution [@vose2008].
+
+Once inputs and assumptions were finalized, an approximate analytical approach was used to calculate best estimates and uncertainty intervals for each risk metric for each pathogen. In many cases, this involved multiplying or dividing two uncertainty distributions. If samples from these distributions were available, this could be achieved using Monte Carlo simulations. In many cases where only a mean estimate and 95% uncertainty interval were available, we assumed uncertainty could be modeled using lognormal distributions.
+
+Since the FERG estimates are the most recent available global estimates, 2010 was used as the reference year for all burden estimates.
+
+# Burden calculations non-FERG hazards in `R`
+
+## Functions
+
+Input data for calculating the disease burden of non - FERG hazards were uncertainty distributions defined by three characteristic values: $lower$ and $upper$ bounds representing the 95% uncertainty interval, and a $mean$ estimate. Disease burden calculations involved multiplying or dividing two uncertainty distributions: Approximate calculations assuming lognormal uncertainty distributions were performed in `Excel` spreadsheets and in `R` [@rcoreteam2023]. This section provides the theoretical background and the `R` code, which is hidden by default. Code can be shown by clicking on the "Show the code" button.
+
+$$
+d_{12}=d_1 \times d_2 \hspace{.2 cm} or
+$$ {#eq-multiply}
+
+$$
+d_{12}=d_1  /  d_2
+$$ {#eq-divide}
+
+Taking logarithms gives:
+
+$$
+log(d_{12})=log(d_1) + log(d_2) \hspace{.2 cm} or
+$$ {#eq-logmultiply}
+
+$$
+log(d_{12})=log(d_1) - log(d_2)
+$$ {#eq-logdivide}
+
+The mean of a normal distribution with known upper and lower bounds is the average of these bounds, and the width of the 95% uncertainty interval is two times 1.96 standard deviations:
+
+$$
+m=\frac{lower + upper}{2}
+$$ {#eq-mean}
+
+$$
+sd=\frac{upper - lower}{2 * 1.96}
+$$ {#eq-sd}
+
+@eq-mean can be used to partly check the lognormal assumption of the data, as the symmetry of a normal distribution requires the calculated mean to be close to the specified $mean$.
+
+The mean and standard deviation of the sum or difference of two uncorrelated normal distributions are calculated as follows:
+
+$$
+log(d_1) \sim N(m_1, sd_1) \hspace{.2 cm} and
+$$ {#eq-lognormal1}
+
+$$
+log(d_2) \sim N(m_2, sd_2) \hspace{.2 cm}
+$$ {#eq-lognormal2}
+
+$$
+log(d_1) + log(d_2) \sim N(m_1 + m_2,  \sqrt{sd_1^2 + sd_2^2}) \hspace{.2 cm} or
+$$ {#eq-lognormalmultiply}
+
+$$
+log(d_1) - log(d_2) \sim N(m_1 - m_2,  \sqrt{sd_1^2 + sd_2^2})
+$$ {#eq-lognormaldivide}
+
+Finally, the mean and 95% uncertainty interval on the original scale are calculated by back-transformation from the mean $m$ and standard deviation $sd$ on the log scale:
+
+$$
+log(lower)=m - 1.96 * sd \hspace{.2 cm}
+$$ {#eq-loglower}
+
+$$
+log(upper)=m + 1.96 * sd \hspace{.2 cm}
+$$ {#eq-logupper}
+
+$$
+mean=exp^{m + sd^2 / 2} \hspace{.2 cm}
+$$ {#eq-meanexp}
+
+$$
+lower=exp^{log(lower)} \hspace{.2 cm}
+$$ {#eq-lowerexp}
+
+$$
+upper=exp^{log(upper)}
+$$ {#eq-upperexp} Here, $exp$ is the base of the logarithm used to transform the data, typically $e$ or $10$.
+
+The assumption of uncorrelated distributions is reasonable for virtually all calculations that involve multiplications. In several calculations that involve divisions, this assumption is less defensible and not accounting for correlation will lead to larger estimates of the confidence intervals. In the absence of data on correlation coefficients, qwe accept this conservative approach.
+
+### Function code and fixed inputs
+
+```{r}
+
+### Function to check symmetry of the logtransformed data
+check_symmetry <- function(lower,  middle,  upper){
+ ((log10(upper) + log10(lower))  /  2)  /  log10(middle)
+}
+
+### Function for Multiplying Distributions
+multiply_distributions <- function(lower_dist1,  upper_dist1,  lower_dist2,  upper_dist2)
+{
+ meanLog_dist1 <- (log10(lower_dist1) + log10(upper_dist1))  /  2
+ stdLog_dist1 <- (log10(upper_dist1) - log10(lower_dist1))  /  (2 * 1.96)
+ meanLog_dist2 <- (log10(lower_dist2) + log10(upper_dist2))  /  2
+ stdLog_dist2 <- (log10(upper_dist2) - log10(lower_dist2))  /  (2 * 1.96)
+ 
+ 
+ meanLog <- meanLog_dist1 + meanLog_dist2
+ stdLog <- sqrt(stdLog_dist1^2 + stdLog_dist2^2)
+ lowerLog <- meanLog - 1.96 * stdLog
+ upperLog <- meanLog + 1.96 * stdLog
+ mean <- 10^(meanLog + stdLog^2  /  2)
+ lower <- 10^(lowerLog)
+ upper <- 10^(upperLog)
+ 
+ return(c(lower,  mean,  upper))
+}
+
+### Function for Dividing Distributions
+
+divide_distributions <- function(lower_dist1,  upper_dist1,  lower_dist2,  upper_dist2)
+{
+ meanLog_dist1 <- (log10(lower_dist1) + log10(upper_dist1))  /  2
+ stdLog_dist1 <- (log10(upper_dist1) - log10(lower_dist1))  /  (2 * 1.96)
+ meanLog_dist2 <- (log10(lower_dist2) + log10(upper_dist2))  /  2
+ stdLog_dist2 <- (log10(upper_dist2) - log10(lower_dist2))  /  (2 * 1.96)
+ 
+ 
+ meanLog <- meanLog_dist1 - meanLog_dist2
+ stdLog <- sqrt(stdLog_dist1^2 + stdLog_dist2^2)
+ lowerLog <- meanLog - 1.96 * stdLog
+ upperLog <- meanLog + 1.96 * stdLog
+ mean <- 10^(meanLog + stdLog^2  /  2)
+ lower <- 10^(lowerLog)
+ upper <- 10^(upperLog)
+ 
+ return(c(lower,  mean,  upper))
+}
+```
+
+### Fixed inputs
+
+We define life expectancy as 90 years for men and women in accordance with WHO FERG. The population size of Ethiopia in 2010 was 87,640,000 @vos2020.
+
+```{r}
+Life_Expectancy <- 90 # According to WHO standards
+Population_Size <- 87640000 # Ethiopia 2010 population size
+```
+
+## Burden estimation
+
+This section shows code and results for the burden estimation of non-FERG hazards. As mentioned before, the code is hidden by default and can be shown by clicking on the "Show the code" button.
+
+### Acrylamide
+
+```{r}
+#| code-fold: true
+#| code-summary: "Show the code"
+
+Cancer_Incidence <- c(411, 1995, 5312)
+Cancer_Mortality <- c(267, 1294, 3948)
+DALYs_per_Case <- 23
+Proportion_AA <- c(0.000021, 0.00021, 0.0021)
+
+## Check lognormal assumptions
+Inputs <- data.frame(
+ hazard = rep("Acrylamide",  3), 
+ variable = c("Cancer_Incidence",  "Cancer_Mortality", "Proportion_AA"), 
+ lower = c(411,  267, 0.000021), 
+ middle = c(1995,  1294,  0.00021), 
+ upper = c(5312,  3948,  0.0021))
+
+symmetry <- Inputs |>
+ rowwise() |>
+ mutate(symmetry = check_symmetry(lower,  middle,  upper))
+
+Incidence <- multiply_distributions(Cancer_Incidence[1], Cancer_Incidence[3], Proportion_AA[1], Proportion_AA[3])
+Incidence_per_100000 <- (Incidence / Population_Size) * 100000
+
+Mortality <- multiply_distributions(Cancer_Mortality[1], Cancer_Mortality[3], Proportion_AA[1], Proportion_AA[3])
+Mortality_per_100000 <- (Mortality / Population_Size) * 100000
+
+Case_Fatality_Ratio <- c(qbeta(0.025,  Mortality[2] + 1,  Incidence[2] - Mortality[2] + 1), 
+       (Mortality[2] + 1)  /  (Mortality[2] + 1 + Incidence[2] - Mortality[2] + 1), 
+       qbeta(0.975,  Mortality[2] + 1,  Incidence[2] - Mortality[2] + 1))
+
+Cancer_DALYs <- Cancer_Incidence * DALYs_per_Case
+DALYs <- multiply_distributions(Cancer_DALYs[1], Cancer_DALYs[3], Proportion_AA[1], Proportion_AA[3])
+DALYs_per_100000 <- (DALYs / Population_Size) * 100000
+
+Output_Data <- t(
+ data.frame(
+ Incidence,  Incidence_per_100000, 
+ Mortality,  Mortality_per_100000, 
+ Case_Fatality_Ratio, 
+ DALYs,  DALYs_per_100000,  DALYs_per_Case)
+ ) |> 
+ as.data.frame() |> 
+ rownames_to_column()
+colnames(Output_Data) <- c("Risk Metric",  "Lower",  "Mean",  "Upper")
+
+identifiers <- data.frame(
+ HazardName = rep("Acrylamide",  nrow(Output_Data)), 
+ HazardType = rep("Chemicals and Toxins",  nrow(Output_Data))
+ )
+         
+Output_Data <- cbind(identifiers,  Output_Data)
+
+NonFERG_data <- Output_Data
+```
+
+### Aflatoxin M1
+
+```{r}
+
+### AFM1 Ethiopia incidence based on Saha Turna 2022
+
+exposure <- 0.79 # ng/kg bw/day
+prop_HBV <- 7.4 / 100
+cpot_neg <- 0.001 # cases per 100000 per ng/kg bw/day; no interaction with HBV
+cpot_pos <- 0.03 # cases per 100000 per ng/kg bw/day; interaction with HBV
+cpot_b1 <- 0.01 # cases per 100000 per ng/kg bw/day; AFM1 is as toxic as AFB1
+
+## Incidence rates
+# Low estimate - no interaction with HBV
+Inc_rate_low <- exposure * cpot_neg
+# Middle estimate - interaction with HBV
+Inc_rate_mid <- (1 - prop_HBV) * exposure * cpot_neg + prop_HBV * exposure * cpot_pos
+# High estimate - AFB1 potency
+Inc_rate_high <- exposure * cpot_b1
+Incidence_per_100000 <- c(Inc_rate_low, Inc_rate_mid, Inc_rate_high)
+
+
+## Incidence
+Cases_low <- Inc_rate_low * Population_Size / 100000
+Cases_mid <- Inc_rate_mid * Population_Size / 100000
+Cases_high <- Inc_rate_high * Population_Size / 100000
+Incidence <- c(Cases_low, Cases_mid, Cases_high)
+
+## Inputs for case-fatality ratio from AFB1 and DALYs per case from FERG data
+AFB1_Cases <- c(180,  430,  1000)
+AFB1_Deaths <- c(160, 376, 913)
+DALYs_per_Case <- c(31, 33, 35)
+
+
+set.seed(48814) # generated at random.org using Min: 1,  Max: 100000; 2022 - 05 - 18 20:14:30 UTC
+cfr <- rbeta(10000, AFB1_Deaths[2] + 1, AFB1_Cases[2] - AFB1_Deaths[2] + 1)
+
+Case_Fatality_Ratio <- c(qbeta(0.025,  AFB1_Deaths[2] + 1,  AFB1_Cases[2] - AFB1_Deaths[2] + 1), 
+       (AFB1_Deaths[2] + 1)  /  (AFB1_Deaths[2] + 1 + AFB1_Cases[2] - AFB1_Deaths[2] + 1), 
+       qbeta(0.975,  AFB1_Deaths[2] + 1,  AFB1_Cases[2] - AFB1_Deaths[2] + 1))
+
+## Check lognormal assumptions
+Inputs <- data.frame(
+ hazard = rep("Aflatoxin M1",  4), 
+ variable = c("AFM1_Cases_per_100000",  "AFB1_Cases", "AFB1_Deaths",  "DALYs_per_Case"), 
+ lower = c(Incidence_per_100000[1],  AFB1_Cases[1],  AFB1_Deaths[1],  DALYs_per_Case[1]), 
+ middle = c(Incidence_per_100000[2],  AFB1_Cases[2],  AFB1_Deaths[2],  DALYs_per_Case[2]), 
+ upper = c(Incidence_per_100000[3],  AFB1_Cases[3],  AFB1_Deaths[3],  DALYs_per_Case[3]))
+
+symmetry <- Inputs |>
+ rowwise() |>
+ mutate(symmetry = check_symmetry(lower,  middle,  upper)) |> 
+ rbind(symmetry)
+
+Mortality <- multiply_distributions(Incidence[1], Incidence[3], Case_Fatality_Ratio[1], Case_Fatality_Ratio[3])
+Mortality_per_100000 <- (Mortality / Population_Size) * 100000
+
+DALYs <- multiply_distributions(Incidence[1], Incidence[3], DALYs_per_Case[1], DALYs_per_Case[3])
+DALYs_per_100000 <- (DALYs / Population_Size) * 100000
+
+Output_Data <- t(
+ data.frame(
+ Incidence,  Incidence_per_100000, 
+ Mortality,  Mortality_per_100000, 
+ Case_Fatality_Ratio, 
+ DALYs,  DALYs_per_100000,  DALYs_per_Case)
+ ) |> 
+ as.data.frame() |> 
+ rownames_to_column()
+colnames(Output_Data) <- c("Risk Metric",  "Lower",  "Mean",  "Upper")
+
+identifiers <- data.frame(
+ HazardName = rep("Aflatoxin M1",  nrow(Output_Data)), 
+ HazardType = rep("Chemicals and Toxins",  nrow(Output_Data))
+ )
+        
+Output_Data <- cbind(identifiers,  Output_Data)
+
+NonFERG_data <- rbind(NonFERG_data, Output_Data)
+```
+
+### *Bacillus anthracis*
+
+```{r}
+
+Proportion_Foodborne <- c(0.01, 0.05, 0.2)
+Age_of_Onset <- c(30, 50, 70)
+Years_of_Observation <- 5
+Anthrax_Cases <- 5197
+Anthrax_Deaths <- 86
+
+Anthrax_Incidence <- c(qgamma(0.025,  scale = 1 / Years_of_Observation,  shape = Anthrax_Cases), 
+      1 / Years_of_Observation * Anthrax_Cases, 
+      qgamma(0.975,  scale = 1 / Years_of_Observation,  shape = Anthrax_Cases)
+      )
+
+Incidence <- multiply_distributions(Anthrax_Incidence[1],  Anthrax_Incidence[3],  Proportion_Foodborne[1],  Proportion_Foodborne[3])
+Incidence_per_100000 <- (Incidence / Population_Size) * 100000
+
+Case_Fatality_Ratio <- c(qbeta(0.025,  Anthrax_Deaths + 1,  Anthrax_Cases - Anthrax_Deaths + 1), 
+       (Anthrax_Deaths + 1)  /  (Anthrax_Deaths + 1 + Anthrax_Cases - Anthrax_Deaths + 1), 
+       qbeta(0.975,  Anthrax_Deaths + 1,  Anthrax_Cases - Anthrax_Deaths + 1))
+
+## Check lognormal assumptions
+Inputs <- data.frame(
+ hazard = rep("Bacillus anthracis",  4), 
+ variable = c("Incidence",  "Case - Fatality Ratio",  "Age_of_Onset",  "DALYs"), 
+ lower = c(Anthrax_Incidence[1],  Case_Fatality_Ratio[1],  Age_of_Onset[1],  DALYs[1]), 
+ middle = c(Anthrax_Incidence[2],  Case_Fatality_Ratio[2],  Age_of_Onset[2],  DALYs[2]), 
+ upper = c(Anthrax_Incidence[3],  Case_Fatality_Ratio[3],  Age_of_Onset[3],  DALYs[3]))
+
+symmetry <- Inputs |>
+ rowwise() |>
+ mutate(symmetry = check_symmetry(lower,  middle,  upper)) |> 
+ rbind(symmetry)
+
+Mortality <- multiply_distributions(Incidence[1], Incidence[3],  Case_Fatality_Ratio[1],  Case_Fatality_Ratio[3])
+Mortality_per_100000 <- (Mortality / Population_Size) * 100000
+
+Life_Lost <- Life_Expectancy - Age_of_Onset
+DALYs <- multiply_distributions(Mortality[1], Mortality[3],  Life_Lost[1],  Life_Lost[3])
+DALYs_per_100000 <-(DALYs / Population_Size) * 100000
+DALYs_per_Case <- divide_distributions(DALYs[1], DALYs[3],  Incidence[1], Incidence[3])
+
+Output_Data <- t(
+ data.frame(
+ Incidence,  Incidence_per_100000, 
+ Mortality,  Mortality_per_100000, 
+ Case_Fatality_Ratio, 
+ DALYs,  DALYs_per_100000,  DALYs_per_Case)
+ ) |> 
+ as.data.frame() |> 
+ rownames_to_column()
+colnames(Output_Data) <- c("Risk Metric",  "Lower",  "Mean",  "Upper")
+
+identifiers <- data.frame(
+ HazardName = rep("Bacillus anthracis",  nrow(Output_Data)), 
+ HazardType = rep("Invasive Infectious Disease Agents",  nrow(Output_Data))
+ )
+         
+Output_Data <- cbind(identifiers,  Output_Data)
+
+NonFERG_data <- rbind(NonFERG_data, Output_Data)
+```
+
+### *Clostridium botulinum* toxins
+
+```{r}
+
+Global_Incidence <- c(183, 475, 990)
+Global_DALYs <- c(299, 1036, 2805)
+Incidence_per_100000 <- c(.02, .04, .08)
+Proportion_Severe <- c(0.2, 0.35, 0.5)
+Case_Fatality_Ratio<- 2 * c(0.05, 0.15, 0.25)
+
+## Check lognormal assumptions
+Inputs <- data.frame(
+ hazard = rep("Clostridium botulinum",  5), 
+ variable = c("Global Incidence",  "Global DALYs",  "Incidence per 100000",  "Proportion Severe",  "Case - Fatality_Ratio"), 
+ lower = c(Global_Incidence[1],  Global_DALYs[1],  Incidence_per_100000[1],  Proportion_Severe[1],  Case_Fatality_Ratio[1]), 
+ middle = c(Global_Incidence[2],  Global_DALYs[2],  Incidence_per_100000[2],  Proportion_Severe[2],  Case_Fatality_Ratio[2]), 
+ upper = c(Global_Incidence[3],  Global_DALYs[3],  Incidence_per_100000[3],  Proportion_Severe[3],  Case_Fatality_Ratio[3]))
+
+symmetry <- Inputs |>
+ rowwise() |>
+ mutate(symmetry = check_symmetry(lower,  middle,  upper)) |> 
+ rbind(symmetry)
+
+Incidence <-(Incidence_per_100000 / 100000) * Population_Size
+Severe_Incidence <- multiply_distributions(Incidence[1],  Incidence[3],  Proportion_Severe[1],  Proportion_Severe[3])
+
+Mortality <- multiply_distributions(Severe_Incidence[1],  Severe_Incidence[3],  Case_Fatality_Ratio[1],  Case_Fatality_Ratio[3])
+Mortality_per_100000 <- (Mortality / Population_Size) * 100000
+
+DALYs_per_Case <- divide_distributions(Global_DALYs[1], Global_DALYs[3],  Global_Incidence[1], Global_Incidence[3])
+DALYs <- multiply_distributions(Incidence[1], Incidence[3],  DALYs_per_Case[1],  DALYs_per_Case[3])
+DALYs_per_100000 <-(DALYs / Population_Size) * 100000
+
+Output_Data <- t(
+ data.frame(
+ Incidence,  Incidence_per_100000, 
+ Mortality,  Mortality_per_100000, 
+ Case_Fatality_Ratio, 
+ DALYs,  DALYs_per_100000,  DALYs_per_Case)
+ ) |> 
+ as.data.frame() |> 
+ rownames_to_column()
+colnames(Output_Data) <- c("Risk Metric",  "Lower",  "Mean",  "Upper")
+
+identifiers <- data.frame(
+ HazardName = rep("Clostridium botulinum toxin",  nrow(Output_Data)), 
+ HazardType = rep("Chemicals and Toxins",  nrow(Output_Data))
+ )
+         
+
+Output_Data <- cbind(identifiers,  Output_Data)
+
+NonFERG_data <- rbind(NonFERG_data,  Output_Data)
+```
+
+### *Lathyrus sativus*
+
+```{r}
+
+Incidence_per_10000 <- c(0.017, 0.17, 1.7)
+Age_of_Onset <- c(5, 20, 40)
+Disability_Weight <- c(0.00377, 0.0377, 0.377)
+Mortality <- c(0, 0, 0)
+Mortality_per_100000 <- c(0, 0, 0)
+Case_Fatality_Ratio <- c(0, 0, 0)
+
+Incidence_per_100000 <-Incidence_per_10000 * 10;
+Incidence <- (Incidence_per_100000 / 100000) * Population_Size
+
+Duration <- (Life_Expectancy - Age_of_Onset)
+
+## Check lognormal assumptions
+Inputs <- data.frame(
+ hazard = rep("Lathyrus sativus",  3), 
+ variable = c("Incidence per 100000",  "Age of onset",  "Disability weight"), 
+ lower = c(Incidence_per_10000[1],  Age_of_Onset[1],  Disability_Weight[1]), 
+ middle = c(Incidence_per_10000[2],  Age_of_Onset[2],  Disability_Weight[2]), 
+ upper = c(Incidence_per_10000[3],  Age_of_Onset[3],  Disability_Weight[3]))
+
+symmetry <- Inputs |>
+ rowwise() |>
+ mutate(symmetry = check_symmetry(lower,  middle,  upper)) |> 
+ rbind(symmetry)
+
+DALYs_per_Case <- multiply_distributions(Duration[1],  Duration[3],  Disability_Weight[1],  Disability_Weight[3])
+YLDs <- multiply_distributions(Incidence[1], Incidence[3],  DALYs_per_Case[1],  DALYs_per_Case[3])
+DALYs <-YLDs
+DALYs_per_100000 <- (DALYs / Population_Size) * 100000
+
+Output_Data <- t(
+ data.frame(
+ Incidence,  Incidence_per_100000, 
+ Mortality,  Mortality_per_100000, 
+ Case_Fatality_Ratio, 
+ DALYs,  DALYs_per_100000,  DALYs_per_Case)
+ ) |> 
+ as.data.frame() |> 
+ rownames_to_column()
+colnames(Output_Data) <- c("Risk Metric",  "Lower",  "Mean",  "Upper")
+
+identifiers <- data.frame(
+ HazardName = rep("Lathyrus sativus",  nrow(Output_Data)), 
+ HazardType = rep("Chemicals and Toxins",  nrow(Output_Data))
+ )
+         
+
+Output_Data <- cbind(identifiers,  Output_Data)
+
+NonFERG_data <- rbind(NonFERG_data,  Output_Data)
+```
+
+### Rift Valley Fever virus
+
+```{r}
+
+Total_RVF_Cases <- c(0.1, 2, 5)
+Proportion_foodborne <- c(0.001, 0.01, 0.05)
+Case_Fatality_Ratio <- c(0.003, 0.01, 0.02)
+RVF_DALYS_per_Case <- c(0.0029,  0.029,  0.29)
+
+## Check lognormal assumptions
+Inputs <- data.frame(
+ hazard = rep("Rift Valley Fever",  4), 
+ variable = c("Total_RVF_Cases",  "Proportion_foodborne",  "Case_Fatality_Ratio",  "RVF_DALYS_per_Case"), 
+ lower = c(Total_RVF_Cases[1],  Proportion_foodborne[1],  Case_Fatality_Ratio[1],  RVF_DALYS_per_Case[1]), 
+ middle = c(Total_RVF_Cases[2],  Proportion_foodborne[2],  Case_Fatality_Ratio[2],  RVF_DALYS_per_Case[2]), 
+ upper = c(Total_RVF_Cases[3],  Proportion_foodborne[3],  Case_Fatality_Ratio[3],  RVF_DALYS_per_Case[3]))
+
+symmetry <- Inputs |>
+ rowwise() |>
+ mutate(symmetry = check_symmetry(lower,  middle,  upper)) |>
+ rbind(symmetry)
+
+Incidence <- multiply_distributions(Total_RVF_Cases[1], Total_RVF_Cases[3],  Proportion_foodborne[1],  Proportion_foodborne[3])
+Incidence_per_100000 <- (Incidence / Population_Size) * 100000
+
+
+Mortality <- multiply_distributions(Incidence[1], Incidence[3],  Case_Fatality_Ratio[1],  Case_Fatality_Ratio[3])
+Mortality_per_100000 <- (Mortality / Population_Size) * 100000
+
+DALYs <- multiply_distributions(Incidence[1], Incidence[3],  RVF_DALYS_per_Case[1],  RVF_DALYS_per_Case[3])
+DALYs_per_100000 <- (DALYs / Population_Size) * 100000
+DALYs_per_Case <- divide_distributions(DALYs[1], DALYs[3],  Incidence[1], Incidence[3])
+
+RVFData <- data.frame(Total_RVF_Cases,  Proportion_foodborne,  Incidence,  Incidence_per_100000,  Mortality,  Mortality_per_100000,  Case_Fatality_Ratio,  DALYs,  DALYs_per_100000,  RVF_DALYS_per_Case)
+
+Output_Data <- t(
+ data.frame(
+ Incidence,  Incidence_per_100000, 
+ Mortality,  Mortality_per_100000, 
+ Case_Fatality_Ratio, 
+ DALYs,  DALYs_per_100000,  DALYs_per_Case)
+ ) |> 
+ as.data.frame() |> 
+ rownames_to_column()
+colnames(Output_Data) <- c("Risk Metric",  "Lower",  "Mean",  "Upper")
+
+identifiers <- data.frame(
+ HazardName = rep("Rift Valley Fever virus",  nrow(Output_Data)), 
+ HazardType = rep("Invasive Infectious Disease Agents",  nrow(Output_Data))
+ )
+         
+
+Output_Data <- cbind(identifiers,  Output_Data)
+
+NonFERG_data <- rbind(NonFERG_data,  Output_Data)
+```
+
+### Rotavirus
+
+```{r}
+
+Total_Diarrheal_Cases <- c(87938334, 97003825, 106210831)
+Proportion_DALYs_Rotavirus <- c(0.05255, 0.11872, 0.20339)
+Proportion_Foodborne <- c(.05, .13, .28)
+Rotavirus_Mortality <- c(2010.21, 5750.99, 12366.71)
+Rotavirus_DALYs <- c(172471.93,  491252.23,  1053955.47)
+
+## Check lognormal assumptions
+Inputs <- data.frame(
+ hazard = rep("Rotavirus",  5), 
+ variable = c("Total_Diarrheal_Cases",  "Proportion_DALYs_Rotavirus",  "Proportion_foodborne",  "Rotavirus_Mortality",  "Rotavirus_DALYs"), 
+ lower = c(Total_Diarrheal_Cases[1],  Proportion_DALYs_Rotavirus[1],  Proportion_Foodborne[1],  Rotavirus_Mortality[1],  Rotavirus_DALYs[1]), 
+ middle = c(Total_Diarrheal_Cases[2],  Proportion_DALYs_Rotavirus[2],  Proportion_Foodborne[2],  Rotavirus_Mortality[2],  Rotavirus_DALYs[2]), 
+ upper = c(Total_Diarrheal_Cases[3],  Proportion_DALYs_Rotavirus[3],  Proportion_Foodborne[3],  Rotavirus_Mortality[3],  Rotavirus_DALYs[3]))
+
+symmetry <- Inputs |>
+ rowwise() |>
+ mutate(symmetry = check_symmetry(lower,  middle,  upper)) |>
+ rbind(symmetry)
+
+Rotavirus_Incidence <- multiply_distributions(Total_Diarrheal_Cases[1], Total_Diarrheal_Cases[3],  Proportion_DALYs_Rotavirus[1], Proportion_DALYs_Rotavirus[3])
+
+Incidence <- multiply_distributions(Rotavirus_Incidence[1], Rotavirus_Incidence[3],  Proportion_Foodborne[1], Proportion_Foodborne[3])
+Incidence_per_100000 <- (Incidence / Population_Size) * 100000
+
+Mortality <- multiply_distributions(Rotavirus_Mortality[1], Rotavirus_Mortality[3],  Proportion_Foodborne[1], Proportion_Foodborne[3])
+Mortality_per_100000 <- (Mortality / Population_Size) * 100000
+
+set.seed(48814) # generated at random.org using Min: 1,  Max: 100000; 2022 - 05 - 18 20:14:30 UTC
+cfr <- rbeta(10000, Mortality[2] + 1,  Incidence[2] - Mortality[2] + 1)
+
+Case_Fatality_Ratio <- c(quantile(cfr, 0.025), mean(cfr), quantile(cfr, 0.975))
+
+DALYs <- multiply_distributions(Rotavirus_DALYs[1], Rotavirus_DALYs[3],  Proportion_Foodborne[1], Proportion_Foodborne[3])
+DALYs_per_100000 <- (DALYs / Population_Size) * 100000
+DALYs_per_Case <- divide_distributions(DALYs[1], DALYs[3],  Incidence[1], Incidence[3])
+
+RotavirusData <- data.frame(Total_Diarrheal_Cases,  Proportion_DALYs_Rotavirus,  Proportion_Foodborne,  Rotavirus_Incidence,  Rotavirus_Mortality,  Rotavirus_DALYs,  Incidence,  Incidence_per_100000,  Mortality,  Mortality_per_100000,  Case_Fatality_Ratio,  DALYs,  DALYs_per_100000,  DALYs_per_Case)
+
+Output_Data <- t(
+ data.frame(
+ Incidence,  Incidence_per_100000, 
+ Mortality,  Mortality_per_100000, 
+ Case_Fatality_Ratio, 
+ DALYs,  DALYs_per_100000,  DALYs_per_Case)
+ ) |> 
+ as.data.frame() |> 
+ rownames_to_column()
+colnames(Output_Data) <- c("Risk Metric",  "Lower",  "Mean",  "Upper")
+
+identifiers <- data.frame(
+ HazardName = rep("Rotavirus",  nrow(Output_Data)), 
+ HazardType = rep("Diarrheal Disease Agents",  nrow(Output_Data))
+ )
+         
+
+Output_Data <- cbind(identifiers,  Output_Data)
+
+NonFERG_data <- rbind(NonFERG_data,  Output_Data)
+```
+
+### *Staphylococcus aureus* toxins
+
+```{r}
+
+Incidence_per_100000 <- c(50.65, 77.3, 118.0)
+Case_Fatality_Ratio <- c(0.0024, 0.005, 0.009)
+Global_DALYs <- c(702, 1575, 3244)
+Global_Cases <- c(658463, 1073339, 1639524)
+
+## Check lognormal assumptions
+Inputs <- data.frame(
+ hazard = rep("Staphylococcus aureus toxins",  4), 
+ variable = c("Incidence per 100000",  "Case - Fatality Ratio",  "Global DALYs",  "Global Cases"), 
+ lower = c(Incidence_per_100000[1],  Case_Fatality_Ratio[1],  Global_DALYs[1],  Global_Cases[1]), 
+ middle = c(Incidence_per_100000[2],  Case_Fatality_Ratio[2],  Global_DALYs[2],  Global_Cases[2]), 
+ upper = c(Incidence_per_100000[3],  Case_Fatality_Ratio[3],  Global_DALYs[3],  Global_Cases[3]))
+
+symmetry <- Inputs |>
+ rowwise() |>
+ mutate(symmetry = check_symmetry(lower,  middle,  upper)) |>
+ rbind(symmetry)
+
+
+Incidence <- (Incidence_per_100000 / 100000) * Population_Size
+
+Mortality <- multiply_distributions(Incidence[1], Incidence[3],  Case_Fatality_Ratio[1],  Case_Fatality_Ratio[3])
+Mortality_per_100000 <- (Mortality / Population_Size) * 100000
+
+DALYs_per_Case <- divide_distributions(Global_DALYs[1], Global_DALYs[3],  Global_Cases[1], Global_Cases[3])
+DALYs <- multiply_distributions(Incidence[1], Incidence[3],  DALYs_per_Case[1],  DALYs_per_Case[3])
+DALYs_per_100000 <- (DALYs / Population_Size) * 100000
+
+staphData <- data.frame(Global_DALYs,  Global_Cases,  Incidence,  Incidence_per_100000,  Mortality,  Mortality_per_100000,  Case_Fatality_Ratio,  DALYs,  DALYs_per_100000,  DALYs_per_Case)
+
+Output_Data <- t(
+ data.frame(
+ Incidence,  Incidence_per_100000, 
+ Mortality,  Mortality_per_100000, 
+ Case_Fatality_Ratio, 
+ DALYs,  DALYs_per_100000,  DALYs_per_Case)
+ ) |> 
+ as.data.frame() |> 
+ rownames_to_column()
+colnames(Output_Data) <- c("Risk Metric",  "Lower",  "Mean",  "Upper")
+
+identifiers <- data.frame(
+ HazardName = rep("Staphylococcus aureus toxins",  nrow(Output_Data)), 
+ HazardType = rep("Chemicals and Toxins",  nrow(Output_Data))
+ )
+         
+
+Output_Data <- cbind(identifiers,  Output_Data)
+
+NonFERG_data <- rbind(NonFERG_data,  Output_Data)
+```
+
+### *Taenia saginata*
+
+```{r}
+
+Prevalence <- c(0.016, 0.019, 0.022)
+Duration <- c(0.3, 3, 30)
+Disability_Weight <- c(0.006, 0.011, 0.04)
+Proportion_symptomatic <- c(0.35, 0.35, 0.35)
+Mortality <- c(0, 0, 0)
+Mortality_per_100000 <- c(0, 0, 0)
+Case_Fatality_Ratio <- c(0, 0, 0)
+
+## Check lognormal assumptions
+Inputs <- data.frame(
+ hazard = rep("Taenia saginata",  4), 
+ variable = c("Prevalence",  "Duration",  "Disability_Weight",  "Proportion_symptomatic"), 
+ lower = c(Prevalence[1],  Duration[1],  Disability_Weight[1],  Proportion_symptomatic[1]), 
+ middle = c(Prevalence[2],  Duration[2],  Disability_Weight[2],  Proportion_symptomatic[2]), 
+ upper = c(Prevalence[3],  Duration[3],  Disability_Weight[3],  Proportion_symptomatic[3]))
+
+symmetry <- Inputs |>
+ rowwise() |>
+ mutate(symmetry = check_symmetry(lower,  middle,  upper)) |>
+ rbind(symmetry)
+
+Incidence_rate <- divide_distributions(Prevalence[1], Prevalence[3],  Duration[1], Duration[3])
+Incidence <- Incidence_rate * Population_Size
+Incidence_per_100000 <- Incidence_rate * 100000
+
+Symptomatic_Cases <- multiply_distributions(Incidence[1], Incidence[3], Proportion_symptomatic[1],  Proportion_symptomatic[3])
+
+YLDs <- Symptomatic_Cases * Duration
+DALYs <- multiply_distributions(YLDs[1], YLDs[3], Disability_Weight[1],  Disability_Weight[3])
+DALYs_per_100000 <- (DALYs / Population_Size) * 100000
+DALYs_per_Case <- divide_distributions(DALYs[1], DALYs[3],  Incidence[1], Incidence[3])
+
+TaeniaData <- data.frame(Prevalence,  Duration,  Incidence_rate,  Proportion_symptomatic,  Symptomatic_Cases,  Disability_Weight,  Incidence,  Incidence_per_100000,  Mortality,  Mortality_per_100000,  Case_Fatality_Ratio,  DALYs,  DALYs_per_100000,  DALYs_per_Case)
+
+Output_Data <- t(
+ data.frame(
+ Incidence,  Incidence_per_100000, 
+ Mortality,  Mortality_per_100000, 
+ Case_Fatality_Ratio, 
+ DALYs,  DALYs_per_100000,  DALYs_per_Case)
+ ) |> 
+ as.data.frame() |> 
+ rownames_to_column()
+colnames(Output_Data) <- c("Risk Metric",  "Lower",  "Mean",  "Upper")
+
+identifiers <- data.frame(
+ HazardName = rep("Taenia saginata",  nrow(Output_Data)), 
+ HazardType = rep("Helminths",  nrow(Output_Data))
+ )
+         
+
+Output_Data <- cbind(identifiers,  Output_Data)
+
+NonFERG_data <- rbind(NonFERG_data,  Output_Data)
+```
+
+### Results
+
+#### Inputs and evaluation of lognormal assumption
+
+@tbl-table-1 shows the input data and an evaluation of the lognormal assumption for the non-FERG hazards, which is reasonably well met for most inputs.
+
+```{r}
+#| label: tbl-table-1
+#| tbl-cap: "Inputs and symmetry of log - transformed data"
+
+symmetry <- symmetry[order(nrow(symmetry):1),  ] # order the data frame in descending order
+
+symmetry |>
+gt() |> 
+  cols_label(
+    hazard = "Hazard", 
+    variable = "Variable", 
+    lower = "Lower Bound", 
+    middle = "Mean", 
+    upper = "Upper Bound", 
+    symmetry = "Symmetry"
+  ) |>
+  tab_footnote(
+    footnote = "Symmetry is calculated as the ratio of the mean of the lower and upper bounds to the specified mean. A value of 1 indicates perfect symmetry, while values < 1 indicate right skewness and values > 1 indicate left skewness.",
+    locations = cells_column_labels(symmetry)
+  ) |>
+ fmt_number(
+ n_sigfig = 2) |> 
+  tab_options(
+    table.font.size = "10px")
+```
+
+#### Foodborne disease burden estimates
+
+@tbl-table-2 shows the burden estimates for the non-FERG hazards by risk metric.
+
+```{r}
+#| label: tbl-table-2
+#| tbl-cap: "Foodborne disease burden estimates non - FERG hazards by risk metric"
+
+gt(NonFERG_data) |> 
+  cols_label(
+    HazardName = "Hazard Name", 
+    HazardType = "Hazard Type", 
+    `Risk Metric` = "Risk Metric", 
+    Lower = "Lower Bound", 
+    Mean = "Mean", 
+    Upper = "Upper Bound"
+  ) |>
+ fmt_number(
+ columns = 4:ncol(NonFERG_data), 
+ n_sigfig = 2) |> 
+  tab_options(
+    table.font.size = "10px")
+```
+
+# Burden calculations non-FERG hazards in `Excel`
+
+The workbook `Burden_calc_approx.xlsx` provides approximate models to multiply or divide uncertainty distributions to support calculations of the burden of foodborne disease when few data are present in a spreadsheet format. Spreadsheets are also provided to calculate the uncertainty distributions of proportions and rates, using Beta and Gamma distributions, respectively. The workbook presents empty spreadsheets where users can enter data, as well as worked examples.
+
+## Multiplying or dividing distributions
+
+The approximate models are based on the assumption that the distributions to be multiplied or divided are lognormal. Lognormal distributions are flexible and allow to model data with long right tails. These distributions cannot assume negative values, which is realistic for all parameters included in burden calculations. Analytical formulas are available to perform the multiplication or division of normal distributions and are implemented in the spreadsheets.
+
+@fig-XL-lognorm illustrates the calculations for multiplying two distributions using mortality from AFM1 as an example. Inputs are the incidence of liver cancer due to exposure to AFM1 and the case-fatality ratio. Users enter descriptors of the inputs and output in cells C4:D4 and C17, and data in the cells C5:D7. Lower bounds in cells C5:D5 and upper bounds in cells C7:D7 are assumed to represent 95% uncertainty intervals. The mean values entered in cells C6:D6 are not used in the calculations, they are used to check if the lognormal assumption is realistic for both input distributions. If so, the results in cells E6:F6 should be approximately the same as the input means. If means are not available, medians can be entered but a larger difference with the check values is expected.
+
+Calculations are performed in two steps. In the first step (cells C11:D14), upper and lower bounds are transformed to the log scale and parameters of the distributions are calculated. In the second step (cells C18:C22), the multiplication or division is carried out as addition or subtraction on the log scale. The results are obtained by back-transformation of the calculation results in cells C26:C28. A second check is included by providing the product or quotient of the means of the input distributions (cell E27). This value should be approximately the same as the calculated mean.
+
+```{r}
+#| label: fig-XL-lognorm
+#| fig-cap: "Multiplication of two lognormal uncertainty distributions in Excel"
+#| echo: false
+#| height: "30%"
+
+include_graphics("XL_lognormal.png")
+```
+
+The calculations for dividing two distributions are the same as for multiplying, except that in cell C18, the mean logs of the two input distributions are subtracted instead of added and in cell D27, the input means are divided instead of multiplied.
+
+## Beta distributions
+
+@fig-XL-beta shows the calculation of quantiles of an uncertainty distribution for proportions, illustrated by the case-fatality ratio of liver cancer due to AFM1. It is assumed that this is the same as for aflatoxin B1 (AFB1) as the cancer caused by these two hazards is the same. According to FERG data, there were 433 cases of liver cancer due to AFB1 in Ethiopia in 2010, of which 376 died. These inputs are entered in cells C5:C6. We use a Bayesian approach to estimate the parameters and quantiles of a Beta distribution to model the uncertainty in the case-fatality ratio [@vose2008a]. A Beta distribution is bounded between 0 and 1 and can take many shapes, which makes it a good choice to model proportions. If there are $n$ cases and $s$ deaths, the Beta distribution defining the uncertainty around the mean is:
+
+$$
+Beta(s+1, n-s+1)
+$$ {#eq-beta}
+
+The parameters of this distribution are calculated in cells D5:D6. The mean case-fatality ratio is $(s+1)/(n+2)$, which is calculated in cell C12. Quantiles of this distribution (i.e., the 2.5, 50 and 97.5 percentiles) can be calculated using the inverse Beta function in `Excel`, e.g., $upper=BETA.INV(0.975,C5,C6)$, and are provided in cells C10, C11 and C13.
+
+```{r}
+#| label: fig-XL-beta
+#| fig-cap: "Estimation of quantiles of Beta uncertainty distribution for proportions"
+#| echo: false
+#| height: "30%"
+
+include_graphics("XL_beta.png")
+```
+
+## Gamma distributions
+
+@fig-XL-gamma shows the calculation of quantiles of an uncertainty distribution for rates, illustrated by the incidence of anthrax due to infection with *Bacillus anthracis*. According to @bahiru2016, there were 5,197 human cases of anthrax in Ethiopia in 5 years. These inputs are entered in cells C5:C6. We use a Bayesian approach to estimate the parameters and quantiles of a Gamma distribution to model the uncertainty in the incidence rate [@vose2008a]. A Gamma distribution is bounded between 0 and $\infty$, and is often used to model rates. If there are $n$ cases in $y$ years the Gamma distribution defining the uncertainty around the mean is:
+
+$$
+Gamma(n, 1/y)
+$$
+
+Here, $n$ is the shape parameter and $1/y$ the scale parameter. The parameters of this distribution are calculated in cells D5:D6. The mean incidence is $n \times(1/y)$, which is calculated in cell C12. Quantiles of this distribution (i.e., the 2.5, 50 and 97.5 percentiles) can be calculated using the inverse Gamma function in `Excel`, e.g., $upper=GAMMA.INV(0.975,C5,C6)$, and are provided in cells C10, C11 and C13.
+
+```{r}
+#| label: fig-XL-gamma
+#| fig-cap: "Estimation of quantiles of Gamma uncertainty distribution for rates"
+#| echo: false
+#| height: "30%"
+
+include_graphics("XL_gamma.png")
+```
+
+# Disease burden dashboard
+
+The disease burden dashboard was created to provide users with a friendly, yet comprehensive way of visualizing, and comparing data on disease burden of FERG hazards. Features include multiple ways of graphing hazard data, multiple scaling options and fine-grained capability to compare a subset of hazards side by side. It has since expanded to generate and graph data for additional hazards through a user accessible simulation. This functionality has been used to add the burden of non-FER hazards selected by Ethiopina stakehoilders to the dashboard. In addition, users are able to run the simulation on data collected for custom hazards of chocie and feed the results back into the dashboard to be visualized alongside the other hazards.
+
+The plots, graphical interface and simulations were created in R statistical software using the Shiny and ggplot2 packages. The dashboard can be accessed at <https://osu-cfi.shinyapps.io/ethdashboard/>[.](https://osu-cfi.shinyapps.io/ethdashboard/.)
+
+The following sections describe the data, terminology and features of the dashboard.
+
+## Data
+
+This section discusses how the data in the dashboard was collected and used, and relevant definitions.
+
+### Data Collection and Usage
+
+The dashboard graphically plots two different data sets. The first data set, referred to as FERG Hazards in the following sections, contains Ethiopian estimates of foodborne disease burden attributed to various hazards obtained from FERG report. The second data set, referred to as non-FERG hazards, contains data on hazards that did not have FERG estimates availablebut were prioritized by the Ethiopian stakeholders. Monte Carlo samples for the dashboard were generated using the 'Minimum Quantile Information Distribution' in the `mc2d` package. This distribution uses linear interpolation between three defined quantiles to construct a cumulative distribution function (cdf) [@hanea2021]. The minimum and maximum of the cdf are defined by an overshoot $k$, i.e., the cdf is expanded on both sides by $k \%$ of the range between the lower and upper quantiles.
+
+```{r}
+#| label: non-FERG samples
+
+## The rmqi function needs three inputs: 
+  # mqi, a vector of three cumulative proability values
+  # n, the number of samples to be generated
+  # mqi.quantile, a vector of the quantiles
+
+set.seed(48814) # generated at random.org using Min: 1,  Max: 100000; 2022 - 05 - 18 20:14:30 UTC
+
+# Generate mqi vector list from NonFERG_data object
+mqis <- map(transpose(NonFERG_data[, 4:6]), unlist)
+# Then we generate n and mqi.quantile lists
+n <- rep(10000, nrow(NonFERG_data))
+mqi.quantile <- rep(list(c(0.025, 0.5, 0.975)), nrow(NonFERG_data))
+# Use pmap to generate random samples
+NonFERG_samples <- pmap(list(mqi=mqis, n=n, mqi.quantile=mqi.quantile), rmqi)
+# Create data frame with samples and identifiers
+```
+
+### Risk Metric Definitions {#sec-metrics}
+
+Each hazard in both data sets listed above have multiple risk metrics that describe it. The dashboard allows users to select which metric to visualize. The definitions of each metric are listed below:
+
+-   Incidence – Number of new cases of disease during a specified time interval.
+
+-   Incidence_Rate_100K – Incidence rate per 100,000 people per year.
+
+-   Mortality - Number of new deaths that occur during during a specified time interval.
+
+-   Mortality_Rate_100K –The number of deaths per 100,000 people per year.
+
+-   Disability-Adjusted Life Year (DALY) - A health gap measure that combines the years of life lost due to premature death (YLL) and the years lived with disability (YLD) from a disease or condition, for varying degrees of severity, making time itself the common metric for death and disability. One DALY equates to 1 year of healthy life lost.
+
+-   DALY_Rate_100K - The number of DALYs per 100,000 peole per year.
+
+-   Case_Fatality_ratio - Proportion of people who die from a specified disease among all individuals diagnosed with the disease over a certain period of time.
+
+-   DALY_per_case - Number of DALYs divided by incidence.
+
+-   Years of Life Lost (YLL) – The number of deaths due to a specific disease or condition multiplied by the standard life expectancy at the age at which death occurs.
+
+-   Years Lived with Disability (YLD) – Number of years lived with a disability due to a specific disease or condition multiplied by a diasability weight.
+
+## Features
+
+Note: all screenshots will be updated when the dashboard has been finalized[text]{style="color:red;"}
+
+### All Hazards Tab
+
+The All Hazards Tab by default displays all of the FERG and Non-FERG hazards in a single set of box plots. As shown below in @fig-all-hazards, the red box plots denote FERG hazards and the blue box plots denote the Non-FERG hazards.
+
+```{r}
+#| label: fig-all-hazards
+#| fig-cap: "All Hazards tab"
+#| echo: false
+#| height: "30%"
+
+include_graphics("allhazards.png")
+```
+
+The top left drop-down box labeled "Select Risk Metric" allows users to choose from the following risk metrics to display on the y-axis defined in @sec-metrics:
+
+-   Incidence
+-   Mortality
+-   DALYs
+-   Incidence_Rate_100K
+-   Mortality_Rate_100K
+-   DALY_Rate_100K
+-   Case_Fatality_ratio
+-   DALY_per_case
+
+The "Choose Graph Type" select box switches the y-axis between a logarithmic and linear scale. The default scale is the log scale.
+
+The "Select Sort Metric" allows users to sort the x-axis based on the alphabetical order of hazard names or the median risk metric value. The default sort metric is the median i.e. the hazards on the x-axis are ordered such that the hazard's median value is increasing.
+
+Two additional boxes allow the user to select Dark Mode, and to create a screenshot of the plot for future reference.
+
+Finally, the checkboxes on the right hand side allow users to select which hazards to plot. Two levels of granularity are given: users are able to select/deselect individual hazards one at a time or by entire hazard groups. Hazard groups include Diarrgehal Disease Agents, Invasive Infectious Disease Agents, Helminths, Chemicals and Toxins and Metals.
+
+@fig-allhazards_select below is an example where we only want to compare Helminths and Metalsand choose specific hazards within these two groups.
+
+```{r}
+#| label: fig-allhazards_select
+#| fig-cap: "All Hazards tab selection"
+#| echo: false
+#| height: "30%"
+
+include_graphics("allhazards_select.png")
+```
+
+### FERG Hazards
+
+THe FERG Hazards tab displays the data for the FERG hazards only. The layout and functionality is the same as the All Hazards tab. FERG disease burden estimates are available for the total population as well as for two age groups (children under 5 years of age and people over 5 years of age).An additional drop-down box Select Dataset is provided to allow users to choose between the two datasets.
+
+### Scatter Plot
+
+The Scatterplot tab allows users to create two-dimensional plots of the data by choosing different metrics for the x-axis and y-axis. This allows users to explore, for example, the two dimensions of risk (e.g. incidence as a metric of likelihood and DALYs per case as a metric of severity) for each hazard.The scatterplot is labeled by hazard names, color coded by Hazard Group. The user can select the x-axis and y-axis metrics from the dropdown menus. The user can also select the metrics on both axes as well as the dataset using the Graph Options drop-down box. !!Add screenshot!\![text\]
+
+### Weighted Scatter Plot
+
+The Weighted Scatterplot allows the user to add a third dimension to the plot, with the chosen metric for the third dimension being used to calculate the size of the dots. The functionality is otherwise the same as for the Scatter Plot. !!Add screenshot!\![text\]
+
+### Add New Hazards
+
+The Add New Hazards tab allows users to generate data for custom hazards (@fig-simulation).
+
+```{r}
+#| label: fig-simulation
+#| fig-cap: "Add New Hazards tab"
+#| echo: false
+#| height: "30%"
+
+include_graphics("simulation.png")
+```
+
+The simulation consists of three steps:
+
+1.  Gathering and Preparing the Data
+
+    The simulation requires the lower,middle and upper distribution value of each hazard. These should be formatted as in @fig-simulation-input.
+
+2.  Formatting the Data
+
+    Once all the distribution values have been calculated, the data must be formatted in an Excel or CSV file. The exact format can be found in the second select tab labelled "2. Formatting the Data".
+
+3.  Upload and Running the Simulation
+
+    The final step is to upload the formatted Excel or CSV file and pressing the "Run and Download" button.
+
+The resulting data from the simulation can then be plotted in the dashboard.
+
+```{r}
+#| label: fig-simulation-input
+#| fig-cap: "Format to import data on custom hazards in dashboard"
+#| echo: false
+#| height: "30%"
+
+include_graphics("simulation-input.jpeg")
+```
+
+# Risk ranking
+
+## Methods
+
+Data from the first two rounds of the risk ranking workshop were collected in spreadsheets and merged into a single dataset. All data extraction, manipulation, plots and statistical testing were generated in **R** statistical software @rcoreteam2023, using the `dplyr` package @dplyr for data processing. The final dataset is available in file `rr_dat.rds`.
+
+Descriptive statistics of the risk ranking results included cross-tabulations and stacked bar-charts using the `ggplot2` package @ggplot2 while mosaic plots were prepared using the `ggmosaic` package @mosaic. Univariate and multivariate ordinal logistic regression models were created using the `polr` function in the `MASS` package @MASS4. The `GGally` @GGally package was used to visually check for multicollinearity. Model selection was based on the Akaike Information Criterion. The proportional odds assumption was checked using the Brant test. The final model was used to identify variables that were most predictive of the rank in round 2. Information on the software versions used is provided in the Session Information at the end of this document.
+
+## Results
+
+### Descriptive analysis
+
+```{r}
+#| label: rr-plots
+#| warning: false
+
+### READ PROCESSED DATA
+rr_dat <- readRDS("rr_dat.rds")
+rr_dat$hazard <- fct_rev(rr_dat$hazard) # reverse order of levels for proper arrangement in plots
+haz_labels <- rev(c("Acrylamide", "Aflatoxin B1", "Aflatoxin M1", "Arsenic", "Ascaris spp.",
+                     "Bacillus anthracis", "Brucella spp.", "Clostridium botulinum toxins", "Cadmium",
+                     "Campylobacter spp.", "Cryptosporidium spp.", "Dioxins", "Echinococcus granulosus",
+                     "Entamoeba spp.", "enteropathogenic Escherichia coli", "enterotoxigenic E. coli",
+                     "Fasciola spp.", "Giardia spp.", "Hepatitis A virus", " Lathyrus sativus", "Lead",
+                     "Listeria monocytogenes", "Mycobacterium bovis", "Methylmercury", "Norovirus",
+                     "Rift Valley Fever virus", "Rotavirus", "Staphylococcus aureus enterotoxins",
+                     "Salmonella Paratyphi", "Salmonella Typhi", "nontyphoidal Salmonella enterica",
+                     "Shigella spp.","Shiga-toxin producing E. coli", "Taenia saginata", "Toxoplasma gondii",
+                     "Trichinella spp.", "Vibrio cholerae")) # reverse order of legends
+
+### Stacked bar charts
+
+rank1 <- ggplot(rr_dat, aes(x = hazard, fill = rank1)) +
+    geom_bar(position = "stack", stat = "count") +
+    labs(x = "Hazard", y = "Count", fill = "Rank") +
+    scale_fill_brewer(palette = "Set2") +
+    coord_flip() +
+    scale_x_discrete(labels = haz_labels)
+
+ggsave(filename = "rank1", plot = rank1, device = "tiff", width = 3, height = 2, unit = "in", dpi = 300)
+
+rank2 <- ggplot(rr_dat, aes(x = hazard, fill = rank2)) +
+    geom_bar(position = "stack", stat = "count") +
+    labs(x = "Hazard", y = "Count", fill = "Rank") +
+     scale_fill_brewer(palette = "Set2") +
+    coord_flip() +
+    scale_x_discrete(labels = haz_labels)
+
+ggsave(filename = "rank2", plot = rank1, device = "tiff", width = 3, height = 2, unit = "in", dpi = 300)
+
+### Mosaic plots
+
+mosaic_r12 <- ggplot(data = rr_dat) +
+    geom_mosaic(aes(x = product(rank2, rank1), fill = rank2)) +
+    scale_fill_brewer(palette = "Set2") +
+    labs(y="Round 2", x="Round 1", fill = "Rank")
+
+ggsave(filename = "mosaic_r12", plot = rank1, device = "tiff", width = 3, height = 2, unit = "in", dpi = 300)
+
+mosaic_r12_sub <- ggplot(data = rr_dat) +
+    geom_mosaic(aes(x = product(rank2, rank1), fill = rank2)) +
+    scale_fill_brewer(palette = "Set2") +
+    labs(y="Round 2", x="Round 1", fill = "Rank") +
+    facet_wrap(~metric1, 
+               labeller = labeller(metric1 = c("daly" = "DALYs", "incidence" = "Incidence", "cfr" = "Case-Fatality Ratio", "mortality" = "Mortality")))
+
+ggsave(filename = "mosaic_r12_sub", plot = rank1, device = "tiff", width = 3, height = 2, unit = "in", dpi = 300)
+```
+
+The ranking results for each hazard in round 1 are shown in @fig-round1. There were five hazards that were assigned the same rank by all groups (High: *Mycobacterium bovis*, Medium: Shiga-toxin producing *Escherichia coli* and *Trichinella* spp., Low: *Echinococcus granulosus* and Rift Valley Fever virus) and these ranks were considered final.
+
+```{r}
+#| echo: false
+#| label: fig-round1
+#| fig-cap: "Risk ranking results in round 1"
+
+rank1
+
+```
+
+In round 2, groups ranked 32 hazards and five ranks were carried over from round 1. Overall changes in ranking are visualized in @fig-mosaic-round2. There was a high number of hazards that were ranked Low in both rounds but changes from Low to Medium did occur. Changes from Low to High did not occur. Most hazards that were ranked Medium in round 1 were also ranked Medium in round 2, but changes occurred to both Low and High ranks. Most changes in ranking occurred for hazards that were ranked High in round 1, changing to Medium or even Low ranks.
+
+```{r}
+#| echo: false
+#| warning: false
+#| label: fig-mosaic-round2
+#| fig-cap: "Changes in ranking from round 1 to round 2"
+
+mosaic_r12
+```
+
+A more detailed analysis of changes in ranking from round 1 to round 2 per metric used in round 1 is presented in @fig-mosaic-round2sub. The group that used incidence as the metric in round 1 changed 20 out of 33 rankings. Hazards with High or Medium rank were reassigned to the same categories but with relatively many crossovers and some hazards were moved from Low to Medium rank. The group using mortality as metric in round 1 changed 27 out of 33 rankings, mainly Medium and Low ranks in round 1. The group using case-fatality ratio as metric in round 1 changed 22 out of 33 ranking, mainly crossovers between High and Medium. The group using DALYs as metric in round 1 changed 26 out of 33 rankings, mainly downranking hazards ranked as High or Medium in round 1.
+
+```{r}
+#| echo: false
+#| label: fig-mosaic-round2sub
+#| fig-cap: "Changes in ranking from round 1 to round 2 by metric assigned to groups in round 1"
+
+mosaic_r12_sub
+```
+
+The ranking results for each hazard following round 2 are shown in @fig-round2. There were fifteen hazards that were assigned the same rank by all groups (High: enterotoxigenic *Escherichia coli*, *Mycobacterium bovis*,rotavirus, *Salmonella enterica* subsp. *enterica* (non-typhoidal) and *Vibrio cholerae*; Medium: *Cryptosporidium* spp., *Echinococcus granulosus*, *Salmonella enterica* subsp. *enterica* serovar Paratyphi and Shiga-toxin producing *Escherichia coli*; Low: dioxins, *Fasciola* spp., *Lathyrus sativus*, Rift Valley Fever virus, *Taenia saginata* and *Trichinella* spp.) and these ranks were considered final.
+
+```{r}
+#| echo: false
+#| label: fig-round2
+#| fig-cap: "Risk ranking results in round 2"
+
+rank2
+```
+
+Ranking of hazards for which no agreement was reached after round 2 were finalized by group discussions as described in the main text.
+
+### Ordinal logistic regression
+
+```{r}
+#| include: false
+#| label: uni-olr
+
+### Univariate models, rank2 as dependent variable
+
+## rank1 as independent variable
+mod_r1 <- polr(rank2 ~ rank1, data = rr_dat, Hess=TRUE) # fit OLR model
+summary(mod_r1) # model summary
+ctable_mod_r1 <- coef(summary(mod_r1)) # model parameter summary statistics
+p_mod_r1 <- pnorm(abs(ctable_mod_r1[, "t value"]), lower.tail = FALSE) * 2 # significance of model parameters
+(ctable_mod_r1 <- cbind(ctable_mod_r1, "p value" = p_mod_r1)) # model parameter summary
+(ci_mod_r1 <- confint(mod_r1)) # 95% confidence intervals of model parameters
+(exp(cbind(OR = coef(mod_r1), ci_mod_r1))) # odds ratios
+
+## incidence as independent variable
+
+mod_i <- polr(rank2 ~ log_inc, data = rr_dat, Hess=TRUE) # fit OLR model
+summary(mod_i) # model summary
+ctable_mod_i <- coef(summary(mod_i)) # model parameter summary statistics
+p_mod_i <- pnorm(abs(ctable_mod_i[, "t value"]), lower.tail = FALSE) * 2 # significance of model parameters
+(ctable_mod_i <- cbind(ctable_mod_i, "p value" = p_mod_i)) # model parameter summary
+(ci_mod_i <- confint(mod_i)) # 95% confidence intervals of model parameters
+(exp(c(OR = coef(mod_i), ci_mod_i))) # odds ratios
+
+## mortality as independent variable
+mod_m <- polr(rank2 ~ log_mort, data = rr_dat, Hess=TRUE) # fit OLR model
+summary(mod_m) # model summary
+ctable_mod_m <- coef(summary(mod_m)) # model parameter summary statistics
+p_mod_m <- pnorm(abs(ctable_mod_m[, "t value"]), lower.tail = FALSE) * 2 # significance of model parameters
+(ctable_mod_m <- cbind(ctable_mod_m, "p value" = p_mod_m)) # model parameter summary
+(ci_mod_m <- confint(mod_m)) # 95% confidence intervals of model parameters
+(exp(c(OR = coef(mod_m), ci_mod_m))) # odds ratios
+
+## cfr as independent variable
+mod_c <- polr(rank2 ~ log_cfr, data = rr_dat, Hess=TRUE) # fit OLR model
+summary(mod_c) # model summary
+ctable_mod_c <- coef(summary(mod_c)) # model parameter summary statistics
+p_mod_c <- pnorm(abs(ctable_mod_c[, "t value"]), lower.tail = FALSE) * 2 # significance of model parameters
+(ctable_mod_c <- cbind(ctable_mod_c, "p value" = p_mod_c)) # model parameter summary
+(ci_mod_c <- confint(mod_c)) # 95% confidence intervals of model parameters
+(exp(c(OR = coef(mod_c), ci_mod_c))) # odds ratios
+
+## daly as independent variable
+mod_d <- polr(rank2 ~ log_daly, data = rr_dat, Hess=TRUE) # fit OLR model
+summary(mod_d) # model summary
+ctable_mod_d <- coef(summary(mod_d)) # model parameter summary statistics
+p_mod_d <- pnorm(abs(ctable_mod_d[, "t value"]), lower.tail = FALSE) * 2 # significance of model parameters
+(ctable_mod_d <- cbind(ctable_mod_d, "p value" = p_mod_d)) # model parameter summary
+(ci_mod_d <- confint(mod_d)) # 95% confidence intervals of model parameters
+(exp(c(OR = coef(mod_d), ci_mod_d))) # odds ratios
+
+## Create results table
+tbl_uni <- round(rbind(
+  exp(c(mod_r1$coefficients[1], ci_mod_r1[1, ])),
+  exp(c(mod_r1$coefficients[2], ci_mod_r1[2, ])),
+  exp(c(mod_i$coefficients, ci_mod_i)),
+  exp(c(mod_m$coefficients, ci_mod_m)),
+  exp(c(mod_c$coefficients, ci_mod_c)),
+  exp(c(mod_d$coefficients, ci_mod_d))),
+  digits = 2
+)
+
+tbl_uni <- data.frame(
+  vars = c("Rank1 Medium", "Rank1 Low", "Incidence rate(log10)",
+           "Mortality rate(log10)", "Case-fatality ratio (log10)",
+           "Disability-Adjusted Life Years rate (log10)"),
+           tbl_uni
+)
+
+```
+
+In the univariate analysis, all predictor variables were highly significant (@tbl-uni). The multivariate model was developed using backward selection, starting with the model including all significant variables in the univariate analysis. There was substantial correlation between the disease burden metrics, see @fig-mcol.
+
+```{r}
+#| label: tbl-uni
+#| tbl-cap: "Univariate analysis for round 2 rank"
+
+tbl_uni2 <- tbl_uni %>% 
+  gt(rowname_col = "vars")  %>% 
+   tab_stubhead(label = "Variable") %>% 
+  tab_spanner(
+    label = "Odds ratio",
+    columns = c("rank1Medium", "X2.5..", "X97.5..")) %>% 
+  cols_label(
+    rank1Medium = "Median",
+    X2.5.. = "2.5%",
+    X97.5.. = "97.5%"
+  ) %>% 
+  tab_options(
+    table.font.style = px(10),
+    table.font.names = "Garamond"
+  )
+
+tbl_uni2
+```
+
+```{r}
+#| warning: false
+#| label: fig-mcol
+#| fig-cap: "Correlation between disease burden metrics"
+
+(mcol_plot <- ggpairs(rr_dat[ , c(11:14)]))
+
+```
+
+```{r}
+#| include: false
+#| warning: false
+#| label: multi-olr
+
+rr_mod <- polr(rank2 ~ rank1 + log_inc + log_mort + log_cfr + log_daly, data = rr_dat, Hess=TRUE)
+summary(rr_mod)
+ctable_rr_mod <- coef(summary(rr_mod)) # model parameter summary statistics
+p_rr_mod <- pnorm(abs(ctable_rr_mod[, "t value"]), lower.tail = FALSE) * 2 # significance of model parameters
+(ctable_rr_mod <- cbind(ctable_rr_mod, "p value" = p_rr_mod)) # model parameter summary
+(ci_rr_mod <- confint(rr_mod)) # 95% confidence intervals of model parameters
+(t(exp(rbind(OR = coef(rr_mod), t(ci_rr_mod))))) # odds ratios
+
+# Reduce model taking incidence and case-fatality ratio out
+rr_mod <- polr(rank2 ~ rank1 + log_mort + log_daly, data = rr_dat, Hess=TRUE)
+summary(rr_mod)
+ctable_rr_mod <- coef(summary(rr_mod)) # model parameter summary statistics
+p_rr_mod <- pnorm(abs(ctable_rr_mod[, "t value"]), lower.tail = FALSE) * 2 # significance of model parameters
+(ctable_rr_mod <- cbind(ctable_rr_mod, "p value" = p_rr_mod)) # model parameter summary
+(ci_rr_mod <- confint(rr_mod)) # 95% confidence intervals of model parameters
+(t(exp(rbind(OR = coef(rr_mod), t(ci_rr_mod))))) # odds ratios
+# leaves rank1 and mortality as significant
+
+# Reduce model taking mortality out
+rr_mod <- polr(rank2 ~ rank1 + log_daly, data = rr_dat, Hess=TRUE)
+summary(rr_mod) # considerable increase of AIC
+ctable_rr_mod <- coef(summary(rr_mod)) # model parameter summary statistics
+p_rr_mod <- pnorm(abs(ctable_rr_mod[, "t value"]), lower.tail = FALSE) * 2 # significance of model parameters
+(ctable_rr_mod <- cbind(ctable_rr_mod, "p value" = p_rr_mod)) # model parameter summary
+(ci_rr_mod <- confint(rr_mod)) # 95% confidence intervals of model parameters
+(t(exp(rbind(OR = coef(rr_mod), t(ci_rr_mod))))) # odds ratios
+
+# Reduce model taking daly out
+rr_mod <- polr(rank2 ~ rank1 + log_mort, data = rr_dat, Hess=TRUE)
+summary(rr_mod)
+ctable_rr_mod <- coef(summary(rr_mod)) # model parameter summary statistics
+p_rr_mod <- pnorm(abs(ctable_rr_mod[, "t value"]), lower.tail = FALSE) * 2 # significance of model parameters
+(ctable_rr_mod <- cbind(ctable_rr_mod, "p value" = p_rr_mod)) # model parameter summary
+(ci_rr_mod <- confint(rr_mod)) # 95% confidence intervals of model parameters
+(t(exp(rbind(OR = coef(rr_mod), t(ci_rr_mod))))) # odds ratios
+
+# Add interaction term
+rr_mod <- polr(rank2 ~ rank1 + log_mort + rank1 * log_mort, data = rr_dat, Hess=TRUE)
+summary(rr_mod)
+ctable_rr_mod <- coef(summary(rr_mod)) # model parameter summary statistics
+p_rr_mod <- pnorm(abs(ctable_rr_mod[, "t value"]), lower.tail = FALSE) * 2 # significance of model parameters
+(ctable_rr_mod <- cbind(ctable_rr_mod, "p value" = p_rr_mod)) # model parameter summary
+(ci_rr_mod <- confint(rr_mod)) # 95% confidence intervals of model parameters
+tbl_multi <- data.frame(t(exp(rbind(OR = coef(rr_mod), t(ci_rr_mod))))) # odds ratios
+tbl_multi <- rownames_to_column(tbl_multi)
+colnames(tbl_multi) <- c("vars","OR", "2.5%", "97.5%")
+
+
+## Model diagnostics
+
+# Brant test for proportional odds assumption
+brant(rr_mod) # H0: Parallel Regression Assumption holds
+
+```
+
+The final model included the rank in round 1 and log10 mortality as the strongest predictors and an interaction term between these variables (@tbl-multi). If Rank1 was Low, the odds of Rank2 being Low (vs. Medium or High) was `r round(exp(rr_mod$coefficients[2]), 0)` times higher than if Rank1 was Medium or High. For every unit increase in log mortality, the odds of Rank2 being Low (vs. Medium or High) decreased by `r round((1- exp(rr_mod$coefficients[3]))*100, 0)`%.
+
+```{r}
+#| label: tbl-multi
+#| tbl-cap: "Multivariate analysis for round 2 rank"
+
+tbl_multi <- tbl_multi %>% 
+  gt(rowname_col = "vars")  %>% 
+   tab_stubhead(label = "Variable") %>% 
+  tab_spanner(
+    label = "Odds ratio",
+    columns = c("OR","2.5%", "97.5%")) %>% 
+  cols_label(
+    OR = "Median",
+    "2.5%" = "2.5%",
+    "97.5%" = "97.5%"
+  ) %>% 
+  tab_options(
+    table.font.style = px(10),
+    table.font.names = "Garamond"
+  )
+
+tbl_multi
+```
+
+The interaction between the two predictors is shown in @fig-olr-int. The top row of the figure suggests that the probability of Rank2 being Low increases if Rank1 moves from High to Low and decreases with increasing log mortality. The probability of Rank2 being High decreases if Rank1 moves from High to Low and increases with increasing log mortality (bottom row of the figure). The probability of Rank2 being Medium is independent of Rank1 and there is no monotonous trend with log mortality. Note that the effect of log mortality on Rank2 is strong. For example, the upper right pane in the plot shows that the probability of Rank 2 being Low if Rank 1 is Low, decreases from approximately 60% to almost 0% if log mortality increases from -8 to 0. Likewise, if Rank1 is High, the probability of Rank2 being High increases from approx. 0% to approx. 80% if log mortality increases from -8 to 0.
+
+```{r}
+#| label: fig-olr-int
+#| fig-cap: "Interaction between predictors of rank in round 2"
+
+## Plotting the effects
+# https://www.r-bloggers.com/2019/06/how-to-perform-ordinal-logistic-regression-in-r/
+
+(olr_plot <- plot(Effect(focal.predictors = c("rank1", "log_mort"),rr_mod), main = ""))
+```
+
+# Attribution of foodborne deaths to hazards
+
+## The Delphi method
+
+We used a Delphi process to collect information from Ethiopian experts on attribution of foodborne deaths to food groups. The Delphi method is a structured, interactive technique to elicit information from a panel of experts and aims to move towards consensus about the study objective. To this purpose, experts answered questions in two rounds.
+
+-   In Round 1, experts individually provided estimates of the proportion of illness from a given hazard, attributed to different food groups after having been briefed in a webinar about the specific goals of the study and how to complete the elicitation instrument
+
+-   After the first round, the experts received a summary of all the expert estimates and the rationale that was provided to support these estimates.
+
+-   In Round 2, the experts were provided the opportunity to revise their individual estimates in the light of the group results.
+
+-   Results from Round 2 were summarized and used to present data on the impact of foodborne disease by hazard and food group to the risk prioritization workshop.
+
+## Round 1
+
+### Elicitation instrument
+
+Experts were provided a spreadsheet to complete their attribution estimates, see @fig-instrument. In addition to the sheet shown here, there was also a sheet with free text fields for each hazard, in which the experts could provide the rationale for their estimates.
+
+![Elicitation instrument](expert_instrument.jpg){#fig-instrument}
+
+The instructions to complete the elicitation instrument were:
+
+-   The aim of this exercise is to attribute all cases of *foodborne disease* by 12 *hazards*  that were assigned a high priority in the risk ranking workshop in a *typical year* in Ethiopia to *food groups*.
+
+-   *Foodborne disease* is defined as a case of illness that was caused by exposure to a microbial or chemical hazard in food. Many of these hazards can also be transmitted by other pathways such as water, soil or contact with humans or animals. The data on foodborne illness that will be used in the study have already considered this attribution to major pathways.
+
+-   The *point of attribution* will be the point where the hazards entered the place where the foods are prepared for final consumption. Hence, experts are asked to consider both the risk of direct consumption of the food group as well as the risk of cross-contamination from the specified food group to the home kitchen environment or food preparation area and ready-to-eat foods prepared there. For example, attribution of Campylobacter to the food group "Poultry meat" includes the risks of eating (undercooked) poultry meat as well as the risks of salads and other ready-to-eat foods that may have been contaminated through cutting boards, benchtops, knives, hands etc.
+
+-   A *typical year* is defined as a year in which no major incidents (e.g., a large outbreak but also COVID-19) affected the incidence of foodborne dise**a**se.
+
+-   *Food groups* included in the study are based on the WHO study, using 13 groups: beef, small ruminant's meat, dairy, pig's meat, poultry meat, eggs, vegetables, fruit and nuts, grains and beans, oils and sugars, finfish, shellfish, seaweed. Pork consumption is very low in Ethiopia and has been excluded. Eggs are not likely to be a relevant transmission pathway of any of the hazards except non-typhoidal *Salmonella enterica*. Consumption of fish, shellfish and seaweed is low to absent in Ethiopia and are excluded. Attribution to oils and sugars in Africa is very low and this group has also been excluded. A category "other foods" is included to allow experts to name any food groups they may consider relevant, including those removed by the study team.
+
+-   Consider all cases in the country, regardless of age, residence etc.
+
+-   Start by thinking about a hazard that you are familiar with. Ask yourself, how are [foodborne]{.underline} cases by that hazard distributed across food groups in a typical year.
+
+-   For food groups of which you think not at all involved in the transmission of the hazard, enter 0 in the cell for the combination of that hazard and food group. For example, *Mycobacterium bovis* can only be transmitted by dairy. We have already assigned 0 to all food groups except dairy in the spreadsheet. We have also assigned 0 to eggs for transmission of all hazards except *Salmonella.* Then, consider food groups that you think are involved in transmission of a hazard and rank them from high to low. Distribute 100 percentage points over these food groups, according to your belief how important each food group is. If you believe a hazard is transmitted by food groups that are not included in the table, you can assign points to the group "Other". In that case, please specify the food in the next column.
+
+-   The sum of all points that you assign should be 100. You can check this in the column "Total", the cells will have a green color when the sum is 100.
+
+-   In this study, we only seek your best estimate and do not consider the uncertainty of these estimates.
+
+-   Once you have finalized your estimates for a specific hazard, briefly describe your rationale in the sheet "Rationale". Write your rationale in the preassigned cell in the sheet only; the text can be longer than the width of the cell provided.
+
+-   Repeat this process or all other hazards
+
+-   You may decide that you are not sufficiently familiar with one or more hazards to provide estimates. In that case, leave all cells for that hazard blank.
+
+-   Save the spreadsheet with the file name Exp*xx*.xlsx, where *xx* is the expert number that was communicated to you in the invitation email. This number is only known to one person in the Ohio State University Global One Health Initiative who is not involved in the study and serves to protect your anonymity.
+
+### Data
+
+Completed spreadsheets were received from 15 experts. @tbl-adj provides details on adjustments made to expert sheets in Round1. These edits were necessary to assure consistency between the individual expert estimates and to assure the data would fit in the computational framework.
+
+1.  A draft expert sheet was distributed with the invitation for the webinar on May 25, 2023 providing details of the process. This draft was revised based on feedback received from the experts. The final expert sheet was distributed after this webinar. Several experts used the draft format. Their sheets were reformatted to be consistent with the final format by sorting the hazards alphabetically, adding the food groups “Oils and Sugar” and “Fish and Shellfish”, and adding the hazard “Rotavirus”.
+
+2.  Several experts only filled cells in their spreadsheet for food groups to which transmission of a hazard was attributed. For computational purposes, empty cells for these hazards were filled with 0’s.
+
+3.  The column “Details” summarized edits that were unique to individual expert sheets.
+
+```{r}
+#| label: exp-data
+
+explist1 <- readRDS("explist1.rds") # expert data round 1
+exp_adj <- read.csv("20230604_expert_sheet_adjustments.csv") # adjustments by study team
+explist2 <- readRDS("explist2.rds") # expert data round 2
+
+```
+
+```{r}
+#| label: tbl-adj
+#| tbl-cap: "Adjustments to expert sheets"
+
+gt(exp_adj)%>% 
+  tab_options(
+    table.font.style = px(10),
+    table.font.names = "Garamond"
+  )
+
+```
+
+### Average expert estimates
+
+```{r}
+#| include: false
+#| label: exp-avg
+#| tab-cap: "Average of expert attribution estimates (%)"
+
+explistl1 <- do.call(rbind, explist1)
+haz_names <- c("Aflatoxin B1", "Arsenic", "Campylobacter spp.", "Enteropathogenic Escherichia coli", 
+             "Enterotoxigenic Escherichia coli", "Mycobacterium bovis", "Non-typhoidal Salmonella enterica", "Norovirus", "Rotavirus",
+             "Salmonella Typhi", "Shigella spp.", "Vibrio cholerae")
+explistl1 <- data.frame(Hazard = rep(haz_names, length(explist1)), explistl1)
+exp_avg1 <-explistl1 %>% slice_rows("Hazard") %>% dmap(mean, na.rm = TRUE) %>% 
+  mutate(Total = rowSums(across(where(is.numeric))))
+cnames <- c("Hazard", "Beef",	"SR.Meat",	"Dairy",	"Poultry",	"Eggs",	"Vegetables",	"Fruits.Nuts",	"Grains.Beans",	"Oils.Sugar",	"(Shell)fish",	"Other",	"Total")
+colnames(exp_avg1) <- cnames
+exp_avg_round1 <- adorn_rounding(exp_avg1, digits = 0)
+exp_avg_round1$Total == 100
+```
+
+The average of expert attribution estimates is presented in @tbl-exp-avg. For each hazard, the table presents the percentage of cases of illness that is attributed to each of the 11 food groups (including a group "Other"). The attribution percentages per hazard sum to 100%.
+
+```{r}
+#| label: tbl-exp-avg
+#| tbl-cap: "Average of expert attribution estimates in Round 1 (%)"
+#| 
+gt(exp_avg_round1) %>% 
+  tab_options(
+    table.font.style = px(10),
+    table.font.names = "Garamond"
+  )
+```
+
+## Expert agreement
+
+```{r}
+#| include: false
+#| label: exp-agreement
+
+# Add experts and hazards
+exp_df <- data.frame(
+  Expert = rep(1:length(explist1), each=nrow(explist1[[1]])),
+  explistl1
+  )
+exp_df$Hazard <- as.factor(exp_df$Hazard)
+colnames(exp_df) <- c("expert", "hazard", "beef", "small_ruminant_meat", "dairy", "poultry_meat","eggs", "vegetables", "fruits_nuts", "grains_beans", "oils_sugar", "fish_shellfish", "other")
+
+sd_beef <- exp_df %>%
+  group_by(hazard) %>%
+  summarise(sd = sd(beef, na.rm = TRUE))
+sd_srm <- exp_df %>%
+  group_by(hazard) %>%
+  summarise(sd = sd(small_ruminant_meat, na.rm = TRUE))
+sd_dry <- exp_df %>%
+  group_by(hazard) %>%
+  summarise(sd = sd(dairy, na.rm = TRUE))
+sd_pol <- exp_df %>%
+  group_by(hazard) %>%
+  summarise(sd = sd(poultry_meat, na.rm = TRUE))
+sd_egg <- exp_df %>%
+  group_by(hazard) %>%
+  summarise(sd = sd(eggs, na.rm = TRUE))
+sd_veg <- exp_df %>%
+  group_by(hazard) %>%
+  summarise(sd = sd(vegetables, na.rm = TRUE))
+sd_fnt <- exp_df %>%
+  group_by(hazard) %>%
+  summarise(sd = sd(fruits_nuts, na.rm = TRUE))
+sd_fruits_nuts <- exp_df %>%
+  group_by(hazard) %>%
+  summarise(sd = sd(fruits_nuts, na.rm = TRUE))
+sd_grb <- exp_df %>%
+  group_by(hazard) %>%
+  summarise(sd = sd(grains_beans, na.rm = TRUE))
+sd_oil <- exp_df %>%
+  group_by(hazard) %>%
+  summarise(sd = sd(oils_sugar, na.rm = TRUE))
+sd_fish <- exp_df %>%
+  group_by(hazard) %>%
+  summarise(sd = sd(fish_shellfish, na.rm = TRUE))
+sd_oth <- exp_df %>%
+  group_by(hazard) %>%
+  summarise(sd = sd(other, na.rm = TRUE))
+
+sd_all <- data.frame(
+  sd_beef, sd_srm[ ,2], sd_dry[ ,2], sd_pol[ ,2], sd_egg[2], sd_veg[ ,2],
+  sd_fnt[ ,2], sd_grb[ ,2], sd_oil[ ,2], sd_fish[ ,2], sd_oth[ ,2]
+)
+colnames(sd_all) <- c(colnames(exp_avg1)[1:12])
+
+sd_all <-mutate(sd_all, Average = rowSums(across(where(is.numeric))) / (ncol(sd_all) - 1))
+
+sd_all <- sd_all %>%
+  bind_rows(summarise(., across(where(is.numeric), mean),
+                         across(where(is.character), ~'Average')))
+
+sd_all <- sd_all %>%
+  mutate_if(is.numeric,
+            round,
+            digits = 0)
+
+```
+
+@tbl-sd shows a metric for the (dis)agreement between experts, i.e., the standard deviation of the estimates (in percent) for each food-hazard pair. A zero in the table means that there was full agreement among the experts, the higher the value, the more disagreement. The final column in @tbl-sd shows the average standard deviation across each row, i.e., for each hazard. We note the the experts agreed most on `r sd_all$Hazard[which(sd_all$Average[c(1:5, 7:12)] == min(sd_all$Average[c(1:5, 7:12)]))]` and least on `r sd_all$Hazard[which(sd_all$Average[c(1:5, 7:12)] == max(sd_all$Average[c(1:5, 7:12)])) +1]`. For food groups, experts agreed most on `r colnames(sd_all)[which(sd_all[nrow(sd_all), c(2: (ncol(sd_all) -1))] == min(sd_all[nrow(sd_all), c(2: (ncol(sd_all) -1))])) + 1]` and least on `r colnames(sd_all)[which(sd_all[nrow(sd_all), c(2: (ncol(sd_all) -1))] == max(sd_all[nrow(sd_all), c(2: (ncol(sd_all) -1))])) + 1]`. Note that *Mycobacterium bovis* was excluded from these considerations because it was assigned 100% to dairy by the study team.
+
+```{r}
+#| label: tbl-sd
+#| tbl-cap: "Standard deviation of expert attribution estimates in Round 1 (%)"
+gt(sd_all)%>% 
+  tab_options(
+    table.font.style = px(10),
+    table.font.names = "Garamond"
+  )
+```
+
+## Expert rationale
+
+Experts were asked to provide the rationale for their estimates, and these are reproduced *ad verbatim* in \@-tbl-rat (Appendix A). This information was shared to help other experts evaluate the group consensus and decide whether they wanted to adjust their estimates in Round 2.
+
+## Evaluation Round 1
+
+After considering the expert's estimates and rationale, the TARTARE team provided the following observations for consideration by the experts in round 2.
+
+1.  Aflatoxin B1 only occurs in foods of plant origin, mainly tree nuts and grains and oil seeds. It can also be present in animal feed. However, after ingestion by animals, aflatoxin B1 is converted into aflatoxin M1 and excreted in urine and milk. Aflatoxin B1 does [not]{.underline} occur in meat and dairy. Aflatoxin M1 was included in the risk ranking workshop and was not considered a high priority foodborne hazard.
+
+2.  Arsenic occurs naturally in soils and can be accumulated by plants grown in contaminated soils. Imported rice is an important, but under-recognized source of exposure to arsenic in Africa. Fish mainly contains arsenobetain (the least toxic form of arsenic), rice, which contains primarily inorganic arsenic, which is much more toxic (L. van Ingenbleek, WHO, personal communication).
+
+3.  Enteropathogenic and enterotoxigenic *E. coli*, Norovirus, Rotavirus, *Salmonella* Typhi and *Shigella* spp. have exclusively human reservoirs. The reservoirs of *Vibrio cholerae* are humans and water. Cross-contamination from food handlers to animal source foods is possible, and Ethiopian experts have indicated that meat and dairy may be involved in the transmission of these hazards @sapp2022. However, it is unlikely that animal source foods are their main transmission routes.
+
+4.  Some experts mentioned the importance of water as a transmission route. There is no doubt that waterborne transmission contributes significantly to the spread of many hazards considered in this study. However, the differentiation between food- and waterborne exposure is already accounted for in the WHO FERG estimates and the attribution estimated from this study will be applied to estimates of the [foodborne]{.underline} disease burden only. Experts should therefore not consider waterborne transmission in their estimates.
+
+## Round 2
+
+### Instructions
+
+All experts were invited to review the changes made to their worksheets by the study team and adjust their Round 2 estimates if they disagreed with any of the edits. Experts who used the draft format did not consider attribution of "Rotavirus" nor the newly added food groups and were invited to reconsider their estimates in Round 2 to take these changes into account.
+
+Experts were also invited to review the Round 1 group results and the comments from the study team and, if they wished, change their estimates based on this information.
+
+If they did not want to make any changes, they were asked to confirm by reply email. After a set deadline, the study team assumed Round 1 estimates were still valid.
+
+### Data
+
+In Round 2, three experts provided revised estimates. For all other experts, the Round 1 estimates were considered final.
+
+### Updated expert estimates
+
+Updated expert estimates are provided in @tbl-exp-avg2. Because of the low number of revised estimates, the results are quite similar to those in Round 1.
+
+```{r}
+#| include: false
+#| label: exp-avg2
+
+exp_avg2 <-explist2 %>% slice_rows("Hazard") %>% dmap(mean, na.rm = TRUE) %>% 
+  mutate(Total = rowSums(across(where(is.numeric))))
+colnames(exp_avg2) <- cnames
+exp_avg_round2 <- adorn_rounding(exp_avg2, digits = 0)
+exp_avg_round2$Total == 100
+```
+
+```{r}
+#| label: tbl-exp-avg2
+#| tbl-cap: "Average of expert attribution estimates in Round 2(%)"
+gt(exp_avg_round2) %>% 
+  tab_options(
+    table.font.style = px(10),
+    table.font.names = "Garamond"
+  )
+```
+
+## Attribution to food groups
+
+In the risk ranking workshop, the experts indicated that mortality was the main metric considered in hazard ranking. This was also evident from the analysis presented in @tbl-multi. Therefore, data on deaths per hazard/ food group were presented as the key input in the risk prioritization workshop. Note that attribution of foodborne deaths was assumed to be proportional to attribution of foodborne disease cases. In total, `r sum(deaths)` deaths were estimated to have occurred in 2010 due to foodborne disease in Ethiopia. The proportion of cases attributed by FERG to different food/hazard combinations for the AFRE subregion, to which Ethiopia belongs, is shown in @tbl-prior-attr. These estimates are the average for the subregion, and were updated for Ethiopia using the results from the Delphi survey.
+
+```{r}
+#| include: false
+
+attr_prior <- read.csv("20230208_FERG_Attribution.csv")
+colnames(attr_prior) <- colnames(exp_avg2)
+attr_prior$Hazard <- exp_avg2$Hazard
+deaths <- c(56, 648, 660, 1457, 1107, 125, 1348, 866, 640, 595, 397, 2367)
+
+```
+
+FERG has not presented attribution estimates to food groups for pathogens with human reservoirs (ETEC, EPEC, *Shigella* spp., Norovirus) and arsenic. Estimates for ETEC were available for Ethiopia from an expert elicitation for the TARTARE and Pull Push projects [@sapp2022]. It was assumed that attribution for other pathogens with human reservoirs was the same as for ETEC. In Africa, fish and rice (mainly imported rice) are the main sources of foodborne exposure to arsenic (Luc van Inglenbeek, WHO; personal communication). A less toxic form of arsenic occurs in fish than in rice. Hence 90% of all deaths by arsenic were attributed to the food group "Grains_Beans" and 10% to "(Shell)fish".
+
+```{r}
+#| label: tbl-prior-attr
+#| tbl-cap: "Prior attribution estimates (percent)"
+#| tbl-cap-location: top
+#| 
+gt(attr_prior) %>% 
+  tab_options(
+    table.font.style = px(10),
+    table.font.names = "Garamond"
+  )
+
+```
+
+We updated the prior attribution data using the data provided by the experts by calculating a weighted average. Let $a_{ij}$ be the prior estimates of percentage points of deaths by hazard $i$ assigned to food group $j$, and $b_{ijk}$ be the percentage points of deaths by hazard $i$ assigned to food group $j$ by expert $k$. An equal weights average was chosen to combine the prior estmates and expert's inputs:
+
+$$ \mu_{ij}=\frac{a_{ij}+\sum_{k} (b_{ijk}/k)}{2}$$
+
+```{r}
+#| include: false
+attr_post <- (attr_prior[ , 2:12] + exp_avg2[2:12]) / 2
+attr_post$Total <- rowSums(attr_post)
+attr_post <- round(attr_post, 0)
+attr_post <- data.frame(cbind(attr_prior[, 1], attr_post))
+colnames(attr_post) <- colnames(attr_prior)
+attr_post[ ,2:12] <- apply(attr_post[ , 2:12], 2, 
+                    function(x) as.numeric(as.character(x)))
+```
+
+```{r}
+#| label: tbl-post-attr
+#| tbl-cap: "Posterior attribution combining estimates from experts in Ethiopia and from FERG"
+
+gt(attr_post) %>% 
+  tab_options(
+    table.font.style = px(10),
+    table.font.names = "Garamond"
+  )
+```
+
+## Updated attributable deaths
+
+Applying the updated attribution estimates resulted in estimates of the number of foodborne deaths attributed to each hazard/food group pair, see @tbl-post-attr_deaths.
+
+```{r}
+
+attr_deaths_post = attr_post[ , 2:12] * deaths / 100
+# https://www.w3schools.blog/round-all-columns-in-r-data frame-to-3-digits
+
+attr_deaths_post <- round(attr_deaths_post, 0)
+
+attr_deaths_post <- data.frame(cbind(attr_prior[, 1], attr_deaths_post)) %>% mutate(Total = rowSums(across(where(is.numeric))))
+colnames(attr_deaths_post) <- c(colnames(attr_prior)[1:12], "Total")
+saveRDS(attr_deaths_post, "attr_deaths_post.rds")
+```
+
+```{r}
+#| label: tbl-post-attr_deaths
+#| tbl-cap: "Attributable deaths by hazard and food group, combining attribution estimates from experts in Ethiopia and literature"
+
+gt(attr_deaths_post) %>% 
+  tab_options(
+    table.font.style = px(10),
+    table.font.names = "Garamond") %>% 
+  grand_summary_rows(
+    columns = any_of(colnames(attr_deaths_post[2:13])),
+    fns = ("sum")
+  )
+```
+
+The (hidden) code below creates a data frame and two plots showing the distribution of attributable deaths by hazard and food group. Plots are included in the main text.
+
+```{r}
+#| output: false
+
+attr_deaths_post_long <- melt(attr_deaths_post)
+colnames(attr_deaths_post_long) <- c("Hazard", "Food_group", "Attributable_deaths")
+
+# Remove totals
+attr_deaths_post_long <- attr_deaths_post_long |> 
+  filter(Food_group!= "Total")
+attr_deaths_post_long$Hazard <- factor(attr_deaths_post_long$Hazard) |> 
+  fct_rev()
+
+# Create hazard labels with proper italics and food group labels
+haz.labels <- c("Aflatoxin B1", "Arsenic", "*Campylobacter* spp.",
+"Enteropathogenic *Escherichia coli*", "Enterotoxigenic *Escherichia coli*",
+"*Mycobacterium bovis*", "Non-typhoidal *Salmonella enterica*", "Norovirus",
+"Rotavirus", "*Salmonella* Typhi", "*Shigella* spp.", "*Vibrio cholerae*" )
+fg.labels <- c("Beef", "Small Ruminant Meat", "Dairy", "Poultry", "Eggs", "Vegetables", "Fruits & Nuts", "Grains & Beans", "Oils & Sugar", "(Shell)fish", "Other")
+
+# Palette Spectral has only 12 colors, need to extend that to 13
+mySpectral <- colorRampPalette(brewer.pal(11, "Spectral"))(13)
+```
+
+```{r}
+#| output: false
+  
+by_hazard <- 
+  ggplot(attr_deaths_post_long, aes(x = Hazard, y = Attributable_deaths, fill = Food_group)) + 
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = mySpectral, name = "Food group", labels = fg.labels) +
+  ylab("Attributable deaths") +
+  theme_classic() +
+  scale_x_discrete(labels = rev(haz.labels)) +
+  theme(axis.text.y = element_markdown()) +
+  rotate()
+
+ggsave(plot = by_hazard, filename = "by_hazard.tiff")
+```
+
+```{r}
+#| output: false
+
+by_food_group <- 
+  ggplot(attr_deaths_post_long, aes(x = Food_group,
+                                    y = Attributable_deaths, fill = Hazard)) + 
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = mySpectral, labels = rev(haz.labels)) +
+  ylab("Attributable deaths") +
+  theme_classic() +
+  scale_x_discrete(name = "Food group", labels = rev(fg.labels), limits = rev) +
+  theme(axis.text.y = element_markdown(),
+        fill = element_markdown()) +
+  theme(legend.text = element_markdown()) +
+  theme(legend.key.height= unit(.5, 'cm'),
+        legend.key.width= unit(.25, 'cm')) +
+  rotate()
+
+ggsave(plot = by_food_group, filename = "by_food_group.tiff")
+```
+
+# Prioritization
+
+## Foodborne deaths attributable to Supply Chain Control Points in four food value chains
+
+The code in this section aggregates the attributable deaths to three categories of hazards and creates the number of deaths for each combination of hazards and food groups.
+
+```{r}
+deaths_fg <- readRDS("attr_deaths_post.rds")
+colnames(deaths_fg) <- c("hazard", "beef", "small_ruminant_meat", "dairy", "poultry_meat","eggs", "vegetables", "fruits_nuts", "grains_beans", "oils_sugar", "fish_shellfish", "other", "total")
+
+deaths_fg <- deaths_fg %>% 
+  mutate(drm = beef + small_ruminant_meat,
+         ddr = dairy,
+         dpl = poultry_meat + eggs,
+         dvg = vegetables,
+         source = factor(c("chem", "chem", "zoon", "anthro",
+                           "anthro","zoon", "zoon",
+                           rep("anthro", 5)),
+                    levels = c("anthro", "zoon", "chem"))
+         ) %>% 
+   dplyr::select(hazard, drm, ddr, dpl, dvg, source)
+
+deaths_agg <- aggregate(cbind(drm, ddr, dpl, dvg) ~ source, data=deaths_fg, sum) %>% 
+  adorn_totals("row")
+
+# Transpose data frame
+# https://kphahn57.medium.com/peters-r-transpose-a-tibble-92536a24ff3b
+
+deaths_agg <- deaths_agg %>% pivot_longer(cols= -1) %>% pivot_wider(names_from = source, values_from = value) %>% dplyr::rename(source = name)
+colnames(deaths_agg) <- c("fg", "anthro", "zoon", "chem", "total")
+```
+
+```{r}
+#| label: tbl-deaths
+#| tbl-cap: "Number of foodborne deaths per year in Ethiopia by three groups of hazards attributed to four food chains"
+#| tbl-cap-location: top
+
+deaths_agg[ , 1] <- c("Red Meat", "Dairy", "Poultry and Eggs", "Vegetables")
+
+gt(deaths_agg) %>%
+  tab_spanner(
+    label = md("**CATEGORIES**"),
+    columns = c(anthro, zoon, chem)
+  ) %>% 
+  cols_label(
+fg = md("**Food<br>groups**"),
+anthro = md("**Anthroponotic<br>Pathogens**"),
+zoon = md("**Zoonotic<br>Pathogens**"),
+chem = md("**Chemicals**"),
+total = md("**Total**"),
+.fn = md
+) %>% 
+  cols_align("center") %>% 
+tab_options(table.width = pct(100), table.font.size = pct(75)) %>% 
+  tab_options(
+    table.font.style = px(10),
+    table.font.names = "Garamond"
+  )
+```
+
+## Supply Chain Control Points
+
+Participants identified SCCPs in the four selected farm-to-fork chains and then asked weighted the relative impact of each SCCP on preventing deaths due to three hazard categories: anthroponotic pathogens, zoonotic pathogens and chemicals. They distributed 10 points per hazard category over each identified SCCP in the corresponding food supply chain in a group discussion. The number of preventable deaths by each SCCP was then calculated as the proportion of points assigned to that SCCP, multiplied by the number of attributable deaths per hazard category for each food chain separately, see @tbl-ccp_drm, @tbl-ccp_dr, @tbl-ccp_pl, @tbl-ccp_vg.
+
+```{r}
+
+ccp_rm <- read_excel("SCCPs_scores.xlsx", sheet = "red_meat")
+
+```
+
+```{r}
+
+ccp_drm <- round(ccp_rm[ , 3:5] * as.vector(deaths_agg[1, 2:4]) / 10, 0)
+ccp_drm$total = rowSums(ccp_drm)
+colnames(ccp_drm) <- c("danthro", "dzoon", "dchem", "dtotal")
+ccp_drm <- cbind(ccp_rm, ccp_drm)
+```
+
+```{r}
+#| label: tbl-ccp_drm
+#| tbl-cap: "Contribution of SCCPs in the beef and small ruminant meat value chains to preventing foodborne deaths in Ethiopia"
+#| tbl-cap-location: top
+
+gt(ccp_drm) %>% 
+  tab_spanner(
+    label = md("**Relative contribution to preventing deaths by category**"),
+    columns = c(anthro, zoon, chem)
+  ) %>% 
+  tab_spanner(
+  label = md("**Preventable deaths by category**"),
+  columns = c(danthro, dzoon, dchem)
+  ) %>% 
+  cols_label(
+step = md("**Step**"),
+ccp = md("**SCCP**"),
+anthro = md("**Anthroponotic<br>Pathogens**"),
+zoon = md("**Zoonotic<br>Pathogens**"),
+chem = md("**Chemicals**"),
+danthro = md("**Anthroponotic<br>Pathogens**"),
+dzoon = md("**Zoonotic<br>Pathogens**"),
+dchem = md("**Chemicals**"),
+dtotal = md("**Total Deaths**"),
+.fn = md
+) %>% 
+  cols_align("center") %>% 
+tab_options(table.width = pct(100), table.font.size = pct(80)) %>% 
+  tab_options(
+    table.font.style = px(10),
+    table.font.names = "Garamond"
+  )
+```
+
+```{r}
+
+ccp_dr <- read_excel("SCCPs_scores.xlsx", sheet = "dairy")
+```
+
+```{r}
+
+ccp_ddr <- round(ccp_dr[ , 3:5] * as.vector(deaths_agg[1, 2:4]) / 10, 0)
+ccp_ddr$total = rowSums(ccp_ddr)
+colnames(ccp_ddr) <- c("danthro", "dzoon", "dchem", "dtotal")
+ccp_ddr <- cbind(ccp_dr, ccp_ddr)
+```
+
+```{r}
+#| label: tbl-ccp_dr
+#| tbl-cap: "Relative contribution of SCCPs in the dairy value chain to reducing foodborne deaths in Ethiopia"
+#| tbl-cap-location: top
+
+gt(ccp_ddr) %>% 
+  tab_spanner(
+    label = md("**Relative contribution to preventing deaths by category**"),
+    columns = c(anthro, zoon, chem)
+  ) %>% 
+  tab_spanner(
+  label = md("**Preventable deaths by category**"),
+  columns = c(danthro, dzoon, dchem)
+  ) %>% 
+  cols_label(
+step = md("**Step**"),
+ccp = md("**SCCP**"),
+anthro = md("**Anthroponotic<br>Pathogens**"),
+zoon = md("**Zoonotic<br>Pathogens**"),
+chem = md("**Chemicals**"),
+danthro = md("**Anthroponotic<br>Pathogens**"),
+dzoon = md("**Zoonotic<br>Pathogens**"),
+dchem = md("**Chemicals**"),
+dtotal = md("**Total Deaths**"),
+.fn = md
+) %>% 
+  cols_align("center") %>% 
+tab_options(table.width = pct(100), table.font.size = pct(80)) %>% 
+  tab_options(
+    table.font.style = px(10),
+    table.font.names = "Garamond"
+  )
+```
+
+```{r}
+
+ccp_pl <- read_excel("SCCPs_scores.xlsx", sheet = "poultry")
+```
+
+```{r}
+
+ccp_dpl <- round(ccp_pl[ , 3:5] * as.vector(deaths_agg[1, 2:4]) / 10, 0)
+ccp_dpl$total = rowSums(ccp_dpl)
+colnames(ccp_dpl) <- c("danthro", "dzoon", "dchem", "dtotal")
+ccp_dpl <- cbind(ccp_pl, ccp_dpl)
+```
+
+```{r}
+#| label: tbl-ccp_pl
+#| tbl-cap: "Relative contribution of SCCPs in the poultry and eggs value chains to reducing foodborne deaths in Ethiopia"
+#| tbl-cap-location: top
+
+gt(ccp_dpl) %>% 
+  tab_spanner(
+    label = md("**Relative contribution to preventing deaths by category**"),
+    columns = c(anthro, zoon, chem)
+  ) %>% 
+  tab_spanner(
+  label = md("**Preventable deaths by category**"),
+  columns = c(danthro, dzoon, dchem)
+  ) %>% 
+  cols_label(
+step = md("**Step**"),
+ccp = md("**SCCP**"),
+anthro = md("**Anthroponotic<br>Pathogens**"),
+zoon = md("**Zoonotic<br>Pathogens**"),
+chem = md("**Chemicals**"),
+danthro = md("**Anthroponotic<br>Pathogens**"),
+dzoon = md("**Zoonotic<br>Pathogens**"),
+dchem = md("**Chemicals**"),
+dtotal = md("**Total Deaths**"),
+.fn = md
+) %>% 
+  cols_align("center") %>% 
+tab_options(table.width = pct(100), table.font.size = pct(80)) %>% 
+  tab_options(
+    table.font.style = px(10),
+    table.font.names = "Garamond"
+  )
+```
+
+```{r}
+
+ccp_vg <- read_excel("SCCPs_scores.xlsx", sheet = "veg")
+```
+
+```{r}
+
+ccp_dvg <- round(ccp_vg[ , 3:5] * as.vector(deaths_agg[1, 2:4]) / 10, 0)
+ccp_dvg$total = rowSums(ccp_dvg)
+colnames(ccp_dvg) <- c("danthro", "dzoon", "dchem", "dtotal")
+ccp_dvg <- cbind(ccp_vg, ccp_dvg)
+```
+
+```{r}
+#| label: tbl-ccp_vg
+#| tbl-cap: "Relative contribution of SCCPs in the vegetable value chains to reducing foodborne deaths in Ethiopia"
+#| tbl-cap-location: top
+
+gt(ccp_dvg) %>% 
+  tab_spanner(
+    label = md("**Relative contribution to preventing deaths by category**"),
+    columns = c(anthro, zoon, chem)
+  ) %>% 
+  tab_spanner(
+  label = md("**Preventable deaths by category**"),
+  columns = c(danthro, dzoon, dchem)
+  ) %>% 
+  cols_label(
+step = md("**Step**"),
+ccp = md("**SCCP**"),
+anthro = md("**Anthroponotic<br>Pathogens**"),
+zoon = md("**Zoonotic<br>Pathogens**"),
+chem = md("**Chemicals**"),
+danthro = md("**Anthroponotic<br>Pathogens**"),
+dzoon = md("**Zoonotic<br>Pathogens**"),
+dchem = md("**Chemicals**"),
+dtotal = md("**Total Deaths**"),
+.fn = md
+) %>% 
+  tab_footnote(
+    footnote = "Running water, waste management, prevention of animal access, display areass",
+    locations = cells_body(columns = ccp, rows = 6),) %>% 
+  opt_footnote_marks(marks = "standard") %>% 
+  cols_align("center") %>% 
+tab_options(table.width = pct(100), table.font.size = pct(80)) %>% 
+  tab_options(
+    table.font.style = px(10),
+    table.font.names = "Garamond"
+  )
+```
+
+# References {.unnumbered}
+
+::: {#refs}
+:::
+
+# Session information {.unnumbered}
+
+```{r}
+sessioninfo::session_info(pkgs = c("attached"))
+```
+
+# Appendix A. Expert rationale in Round 1 {.unnumbered}
+
+```{r}
+
+exp_rat <- readRDS("exp_rat.rds")
+exp_rat <- exp_rat[complete.cases(exp_rat), ]
+```
+
+```{r}
+#| label: tbl-rat
+
+gt(exp_rat) %>% 
+  tab_options(
+    table.font.style = px(8),
+    table.font.names = "Garamond"
+  )
+```
